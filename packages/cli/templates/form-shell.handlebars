@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang='en'>
+<!--
+	Form trigger — trusted hosting shell (IAM-1058), UI per design IAM-1046.
+
+	Shown when the authenticated submitter must still connect one or more of the
+	private credentials this workflow needs. Strictly n8n-controlled: renders NO
+	author-influenced HTML (only escaped credential names). The author's form
+	renders UNCHANGED in the sandboxed, null-origin <iframe> below; the connect
+	surface — with the real per-credential authorize links — lives here in the
+	shell, OUTSIDE the author-scriptable iframe DOM (the security win).
+
+	Layout mirrors the design: a "Required credentials" card sits above the form.
+	1 credential -> inline single-row card. 3+ -> compact strip + dialog.
+
+	The disabled Submit inside the iframe is UX only; the real guarantee is the
+	server-side readiness re-check on POST. Connect -> popup -> provider consent
+	-> n8n oauth-callback broadcasts 'success' -> we reload; the GET re-checks
+	readiness and, once everything is connected, renders the plain form.
+	The response sets `frame-ancestors 'none'`.
+-->
+
+<head>
+	<meta charset='UTF-8' />
+	<meta name='viewport' content='width=device-width, initial-scale=1.0' />
+	<link rel='icon' type='image/png' href='https://n8n.io/favicon.ico' />
+	<link href="https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,300..800;1,300..800&display=swap" rel="stylesheet">
+	<title>{{formTitle}}</title>
+	<style>
+		:root {
+			--font-family: 'Open Sans', sans-serif;
+			--color-background: #fbfcfe;
+			--color-card-bg: #ffffff;
+			--color-card-border: #dbdfe7;
+			--color-card-shadow: rgba(99, 77, 255, 0.06);
+			--color-header: #525356;
+			--color-label: #555555;
+			--color-muted: #7e8186;
+			--color-primary: #ff6d5a;
+			--color-primary-text: #ffffff;
+			--color-ok: #2e9e5b;
+			--color-icon-bg: #f2f0ff;
+			--color-icon-text: #6a5bdd;
+			--border-radius-card: 8px;
+			--border-radius-input: 6px;
+			--container-width: 480px;
+			--box-shadow-card: 0px 4px 16px 0px var(--color-card-shadow);
+			--box-shadow-dialog: 0px 12px 48px rgba(0, 0, 0, 0.18);
+		}
+		*, ::before, ::after { box-sizing: border-box; margin: 0; padding: 0; }
+		body { font-family: var(--font-family); background: var(--color-background); min-height: 100vh; }
+		.shell { width: 100%; padding-top: 24px; }
+		/* The connect surface aligns to the form card width and centers, matching the
+		   form (which centers its own card in the full-width iframe below). */
+		.req-card, .req-strip { width: var(--container-width); max-width: calc(100vw - 32px); margin: 0 auto 16px; }
+
+		/* --- Required-credentials card (1–2 credentials, inline) --- */
+		.req-card {
+			background: var(--color-card-bg);
+			border: 1px solid var(--color-card-border);
+			border-radius: var(--border-radius-card);
+			box-shadow: var(--box-shadow-card);
+			padding: 20px;
+		}
+		.req-title { font-size: 15px; font-weight: 600; color: var(--color-header); }
+		.req-sub { font-size: 13px; color: var(--color-muted); margin-top: 4px; margin-bottom: 14px; }
+
+		/* --- Compact strip (3+ credentials) --- */
+		.req-strip {
+			display: flex;
+			align-items: center;
+			gap: 14px;
+			background: var(--color-card-bg);
+			border: 1px solid var(--color-card-border);
+			border-radius: var(--border-radius-card);
+			box-shadow: var(--box-shadow-card);
+			padding: 16px 18px;
+		}
+		.stack { display: flex; align-items: center; }
+		.stack .cred-icon { margin-right: -8px; border: 2px solid var(--color-card-bg); }
+		.stack .more {
+			width: 28px; height: 28px; border-radius: 6px; border: 2px solid var(--color-card-bg);
+			background: #eceafd; color: var(--color-icon-text);
+			font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center;
+		}
+		.strip-meta { flex: 1; min-width: 0; }
+		.strip-title { font-size: 14px; font-weight: 600; color: var(--color-header); }
+		.strip-count { font-size: 13px; color: var(--color-muted); margin-top: 2px; }
+
+		/* --- Credential row (shared by card + dialog) --- */
+		.cred-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+		.req-card .cred-row + .cred-row,
+		.dialog .cred-row + .cred-row { border-top: 1px solid #f0f1f4; }
+		.cred-icon {
+			width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0;
+			background: var(--color-icon-bg); color: var(--color-icon-text);
+			font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center;
+		}
+		.cred-meta { flex: 1; min-width: 0; }
+		.cred-name { display: block; font-size: 14px; font-weight: 600; color: var(--color-label); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+		.cred-sub { display: block; font-size: 12px; color: var(--color-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+		.cred-sub.connected { color: var(--color-ok); }
+
+		/* --- Buttons --- */
+		.btn {
+			font-family: var(--font-family); font-size: 13px; font-weight: 600;
+			padding: 8px 16px; border-radius: var(--border-radius-input); border: 1px solid transparent; cursor: pointer;
+		}
+		.btn-primary { background: var(--color-primary); color: var(--color-primary-text); }
+		.btn-primary:hover { opacity: 0.88; }
+		.btn-secondary { background: var(--color-card-bg); color: var(--color-label); border-color: var(--color-card-border); }
+		.btn-secondary:hover { border-color: var(--color-muted); }
+		.cred-connected { position: relative; }
+		.btn-connected { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; color: var(--color-ok); font-family: var(--font-family); font-size: 13px; font-weight: 600; cursor: pointer; padding: 6px 4px; }
+		.btn-connected .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-ok); }
+		.cred-menu { display: none; position: absolute; right: 0; top: 100%; margin-top: 4px; background: var(--color-card-bg); border: 1px solid var(--color-card-border); border-radius: 6px; box-shadow: var(--box-shadow-card); z-index: 2; }
+		.cred-menu.open { display: block; }
+		.btn-disconnect { display: block; width: 100%; text-align: left; white-space: nowrap; background: none; border: 0; padding: 8px 14px; font-family: var(--font-family); font-size: 13px; color: #a02f28; cursor: pointer; }
+		.btn-disconnect:hover { background: #fdeceb; }
+		.cred-status-ok { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--color-ok); white-space: nowrap; }
+		.cred-status-ok .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-ok); }
+		.cred-blocked { font-size: 13px; color: var(--color-muted); }
+
+		/* --- Dialog --- */
+		.overlay { display: none; position: fixed; inset: 0; background: rgba(20, 20, 30, 0.4); align-items: center; justify-content: center; z-index: 10; padding: 16px; }
+		.overlay.open { display: flex; }
+		.dialog { width: 480px; max-width: 100%; max-height: calc(100vh - 48px); display: flex; flex-direction: column; background: var(--color-card-bg); border-radius: 12px; box-shadow: var(--box-shadow-dialog); overflow: hidden; }
+		.dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 8px; }
+		.dialog-title { font-size: 16px; font-weight: 600; color: var(--color-header); }
+		.dialog-close { background: none; border: 0; font-size: 20px; line-height: 1; color: var(--color-muted); cursor: pointer; }
+		.dialog-sub { padding: 0 20px 8px; font-size: 13px; color: var(--color-muted); }
+		.dialog-list { padding: 0 20px; overflow-y: auto; }
+		.dialog-foot { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-top: 1px solid #f0f1f4; }
+		.dialog-count { font-size: 13px; color: var(--color-muted); }
+
+		/* --- The form itself, unchanged, in a null-origin sandboxed iframe --- */
+		#form-frame { display: block; width: 100%; height: calc(100vh - 40px); border: 0; background: transparent; }
+	</style>
+</head>
+
+<body>
+	<div class='shell'>
+		{{#if useDialog}}
+			<div class='req-strip'>
+				<div class='stack'>
+					{{#each iconStack}}
+						<span class='cred-icon'>{{this}}</span>
+					{{/each}}
+					{{#if moreCount}}<span class='more'>+{{moreCount}}</span>{{/if}}
+				</div>
+				<div class='strip-meta'>
+					<div class='strip-title'>Required credentials</div>
+					<div class='strip-count'>{{connectedCount}} of {{total}} credentials connected</div>
+				</div>
+				<button class='btn btn-primary' id='open-dialog'>Connect</button>
+			</div>
+		{{else}}
+			<div class='req-card'>
+				<div class='req-title'>Required credentials</div>
+				<div class='req-sub'>Connect required credentials to run this form using your data.</div>
+				{{#each credentials}}
+					<div class='cred-row' data-cred-id='{{id}}' data-status='{{status}}'>
+						<span class='cred-icon'>{{initial}}</span>
+						<span class='cred-meta'>
+							<span class='cred-name'>{{name}}</span>
+							<span class='cred-sub {{#if connected}}connected{{/if}}'>{{#if connected}}Connected{{else}}Not connected{{/if}}{{#if usedBy}} · used by {{usedBy}}{{/if}}</span>
+						</span>
+						{{#if connected}}
+							<span class='cred-status-ok'><span class='dot'></span> {{#if account}}Connected as {{account}}{{else}}Connected{{/if}}</span>
+						{{else if authorizationUrl}}
+							<button class='btn btn-secondary connect' data-url='{{authorizationUrl}}'>{{#if (eq status 'expired')}}Reconnect{{else}}Connect{{/if}}</button>
+						{{else}}
+							<span class='cred-blocked'>Ask the form owner</span>
+						{{/if}}
+					</div>
+				{{/each}}
+			</div>
+		{{/if}}
+
+		<iframe
+			id='form-frame'
+			src='{{iframeSrc}}'
+			sandbox='allow-scripts allow-forms allow-modals allow-popups allow-downloads'
+		></iframe>
+	</div>
+
+	{{#if useDialog}}
+		<div class='overlay' id='overlay'>
+			<div class='dialog' role='dialog' aria-modal='true' aria-labelledby='dialog-title'>
+				<div class='dialog-head'>
+					<span class='dialog-title' id='dialog-title'>Required credentials</span>
+					<button class='dialog-close' id='close-dialog' aria-label='Close'>&times;</button>
+				</div>
+				<div class='dialog-sub'>Connect required credentials to run this form using your data.</div>
+				<div class='dialog-list'>
+					{{#each credentials}}
+						<div class='cred-row' data-cred-id='{{id}}' data-status='{{status}}'>
+							<span class='cred-icon'>{{initial}}</span>
+							<span class='cred-meta'>
+								<span class='cred-name'>{{name}}</span>
+								<span class='cred-sub {{#if connected}}connected{{/if}}'>{{#if connected}}Connected{{else}}Not connected{{/if}}{{#if usedBy}} · used by {{usedBy}}{{/if}}</span>
+							</span>
+							{{#if connected}}
+								<span class='cred-status-ok'><span class='dot'></span> {{#if account}}Connected as {{account}}{{else}}Connected{{/if}}</span>
+							{{else if authorizationUrl}}
+								<button class='btn btn-secondary connect' data-url='{{authorizationUrl}}'>{{#if (eq status 'expired')}}Reconnect{{else}}Connect{{/if}}</button>
+							{{else}}
+								<span class='cred-blocked'>Ask the form owner</span>
+							{{/if}}
+						</div>
+					{{/each}}
+				</div>
+				<div class='dialog-foot'>
+					<span class='dialog-count'>{{connectedCount}} of {{total}} credentials connected</span>
+					<button class='btn btn-primary' id='done-dialog'>Done</button>
+				</div>
+			</div>
+		</div>
+	{{/if}}
+
+	<script>
+		(function () {
+			// NOTE: we deliberately do NOT reload the page after a connect. Reloading
+			// re-runs the form's OAuth2 auth (which re-shows the consent screen), so a
+			// connect would bounce the submitter back through consent. Instead we mark
+			// the credential connected in place and, once all are connected, send a
+			// non-secret enable signal to the sandboxed form iframe. The server-side
+			// readiness re-check on POST remains the real guarantee.
+			var frame = document.getElementById('form-frame');
+			var ids = {};
+			var connected = {};
+			document.querySelectorAll('.cred-row').forEach(function (row) {
+				var id = row.getAttribute('data-cred-id');
+				ids[id] = true;
+				if (row.getAttribute('data-connected') === 'true') connected[id] = true;
+			});
+			var total = Object.keys(ids).length;
+
+			function refresh() {
+				var count = Object.keys(connected).length;
+				var txt = count + ' of ' + total + ' credentials connected';
+				document.querySelectorAll('.strip-count, .dialog-count').forEach(function (el) {
+					el.textContent = txt;
+				});
+				if (count >= total && frame && frame.contentWindow) {
+					frame.contentWindow.postMessage({ type: 'n8n-shell-credentials-ready' }, '*');
+				}
+			}
+
+			function markConnected(id) {
+				if (!id || connected[id]) return;
+				connected[id] = true;
+				// Card and dialog share the same data-cred-id; update both.
+				document.querySelectorAll('.cred-row[data-cred-id="' + id + '"]').forEach(function (row) {
+					row.setAttribute('data-connected', 'true');
+					var sub = row.querySelector('.cred-sub');
+					if (sub) { sub.textContent = 'Connected'; sub.classList.add('connected'); }
+					var btn = row.querySelector('.connect');
+					if (btn) {
+						var ok = document.createElement('span');
+						ok.className = 'cred-status-ok';
+						ok.innerHTML = '<span class="dot"></span> Connected';
+						btn.replaceWith(ok);
+					}
+				});
+				refresh();
+			}
+
+			var pendingId = null;
+
+			// Mark connected ONLY on an authoritative success signal from the n8n
+			// oauth-callback page — never on popup close. A provider-side failure
+			// (e.g. "access blocked", redirect_uri_mismatch) leaves the popup on the
+			// provider and never reaches our callback, so closing it must NOT flip the
+			// row to Connected. The callback page emits success two ways:
+			//   1. BroadcastChannel('oauth-callback') 'success'  (same-origin)
+			//   2. window.opener.postMessage('success', '*')     (also cross-origin)
+			function onSuccessSignal() { if (pendingId) markConnected(pendingId); }
+			try {
+				var channel = new BroadcastChannel('oauth-callback');
+				channel.addEventListener('message', function (event) {
+					if (event.data === 'success') onSuccessSignal();
+				});
+			} catch (e) {}
+			window.addEventListener('message', function (event) {
+				// Success only comes from the connect popup. Ignore the sandboxed form
+				// iframe so author content can't spoof a connect (the POST gate is the
+				// real guarantee regardless).
+				if (frame && event.source === frame.contentWindow) return;
+				if (event.data === 'success') onSuccessSignal();
+			});
+
+			function openConnect(id, url) {
+				if (!url) return;
+				pendingId = id;
+				// No popup-close handler: success is confirmed only by the signals above.
+				window.open(url, 'n8n-credential-connect', 'width=500,height=700,menubar=no,toolbar=no');
+			}
+
+			document.querySelectorAll('.connect').forEach(function (btn) {
+				btn.addEventListener('click', function () {
+					var row = btn.closest('.cred-row');
+					openConnect(row ? row.getAttribute('data-cred-id') : null, btn.getAttribute('data-url'));
+				});
+			});
+			document.querySelectorAll('.btn-disconnect').forEach(function (btn) {
+				btn.addEventListener('click', function () { openConnect(null, btn.getAttribute('data-url')); });
+			});
+
+			// Connected-state dropdown (disconnect)
+			document.querySelectorAll('[data-menu]').forEach(function (btn) {
+				btn.addEventListener('click', function (e) {
+					e.stopPropagation();
+					var menu = btn.parentElement.querySelector('.cred-menu');
+					if (menu) menu.classList.toggle('open');
+				});
+			});
+			document.addEventListener('click', function () {
+				document.querySelectorAll('.cred-menu.open').forEach(function (m) { m.classList.remove('open'); });
+			});
+
+			// Dialog (3+ credentials)
+			var overlay = document.getElementById('overlay');
+			var open = document.getElementById('open-dialog');
+			if (open && overlay) {
+				open.addEventListener('click', function () { overlay.classList.add('open'); });
+				document.getElementById('close-dialog').addEventListener('click', function () { overlay.classList.remove('open'); });
+				document.getElementById('done-dialog').addEventListener('click', function () { overlay.classList.remove('open'); });
+				overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.classList.remove('open'); });
+			}
+		})();
+	</script>
+</body>
+
+</html>
