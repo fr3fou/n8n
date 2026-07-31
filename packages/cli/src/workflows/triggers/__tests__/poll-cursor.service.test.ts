@@ -3,6 +3,7 @@ import type { PollerConfig } from '@n8n/config';
 import type {
 	CreateExecutionPayload,
 	OperationContext,
+	PollLeaseFence,
 	PollerStateRepository,
 	TransactionRunner,
 } from '@n8n/db';
@@ -235,16 +236,65 @@ describe('PollCursorService', () => {
 				}),
 			).rejects.toBe(error);
 		});
+
+		it('resolves null and does not create the execution when the fence rejects the advance', async () => {
+			const service = buildService();
+			pollerStateRepository.ensureCursor.mockResolvedValue({ lastItemId: 'a' });
+			pollerStateRepository.advanceCursor.mockResolvedValue(false);
+			const fence: PollLeaseFence = { taskId: 'task-1', leaseEpoch: 3 };
+
+			const result = await service.commitWithExecution({
+				workflowId: 'wf-1',
+				nodeId: 'node-1',
+				cursor: { lastItemId: 'b' },
+				payload: payload(),
+				fence,
+			});
+
+			expect(result).toBeNull();
+			expect(executionPersistence.create).not.toHaveBeenCalled();
+			expect(errorReporter.error).not.toHaveBeenCalled();
+		});
+
+		it('passes the fence through to the cursor advance', async () => {
+			const service = buildService();
+			pollerStateRepository.ensureCursor.mockResolvedValue({ lastItemId: 'a' });
+			pollerStateRepository.advanceCursor.mockResolvedValue(true);
+			executionPersistence.create.mockResolvedValue('exec-1');
+			const fence: PollLeaseFence = { taskId: 'task-1', leaseEpoch: 3 };
+
+			await service.commitWithExecution({
+				workflowId: 'wf-1',
+				nodeId: 'node-1',
+				cursor: { lastItemId: 'b' },
+				payload: payload(),
+				fence,
+			});
+
+			const ctx = txRunner.run.mock.calls[0][0];
+			expect(pollerStateRepository.advanceCursor).toHaveBeenCalledWith(
+				'wf-1',
+				'node-1',
+				{ lastItemId: 'b' },
+				ctx,
+				fence,
+			);
+		});
 	});
 
 	describe('commitCursorOnly', () => {
-		const commitCursorOnly = async (service: PollCursorService, nodeStaticData: PollCursor = {}) =>
+		const commitCursorOnly = async (
+			service: PollCursorService,
+			nodeStaticData: PollCursor = {},
+			fence?: PollLeaseFence,
+		) =>
 			await service.commitCursorOnly({
 				workflowId: 'wf-1',
 				nodeId: 'node-1',
 				nodeName: 'Poll Node',
 				cursor: { lastItemId: 'b' },
 				nodeStaticData,
+				fence,
 			});
 
 		it('advances the cursor in one transaction without creating an execution', async () => {
@@ -291,12 +341,44 @@ describe('PollCursorService', () => {
 			expect(workflowStaticDataService.saveStaticDataById).not.toHaveBeenCalled();
 		});
 
-		it('resolves when mirroring the advance fails', async () => {
+		it('resolves true when mirroring the advance fails', async () => {
 			const service = buildService();
 			pollerStateRepository.ensureCursor.mockResolvedValue({ lastItemId: 'a' });
+			pollerStateRepository.advanceCursor.mockResolvedValue(true);
 			workflowStaticDataService.getStaticDataById.mockRejectedValue(new Error('read failed'));
 
-			await expect(commitCursorOnly(service)).resolves.toBeUndefined();
+			await expect(commitCursorOnly(service)).resolves.toBe(true);
+		});
+
+		it('resolves false and does not mirror to static data when the fence rejects the advance', async () => {
+			const service = buildService();
+			pollerStateRepository.ensureCursor.mockResolvedValue({ lastItemId: 'a' });
+			pollerStateRepository.advanceCursor.mockResolvedValue(false);
+			const fence: PollLeaseFence = { taskId: 'task-1', leaseEpoch: 3 };
+
+			const result = await commitCursorOnly(service, {}, fence);
+
+			expect(result).toBe(false);
+			expect(workflowStaticDataService.saveStaticDataById).not.toHaveBeenCalled();
+			expect(errorReporter.error).not.toHaveBeenCalled();
+		});
+
+		it('passes the fence through to the cursor advance', async () => {
+			const service = buildService();
+			pollerStateRepository.ensureCursor.mockResolvedValue({ lastItemId: 'a' });
+			pollerStateRepository.advanceCursor.mockResolvedValue(true);
+			const fence: PollLeaseFence = { taskId: 'task-1', leaseEpoch: 3 };
+
+			await commitCursorOnly(service, {}, fence);
+
+			const ctx = txRunner.run.mock.calls[0][0];
+			expect(pollerStateRepository.advanceCursor).toHaveBeenCalledWith(
+				'wf-1',
+				'node-1',
+				{ lastItemId: 'b' },
+				ctx,
+				fence,
+			);
 		});
 	});
 
