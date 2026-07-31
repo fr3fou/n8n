@@ -1,6 +1,11 @@
 import { Logger } from '@n8n/backend-common';
 import { PollerConfig } from '@n8n/config';
-import type { CreateExecutionPayload, OperationContext, PollerCursor } from '@n8n/db';
+import type {
+	CreateExecutionPayload,
+	OperationContext,
+	PollerCursor,
+	PollLeaseFence,
+} from '@n8n/db';
 import { PollerStateRepository, TransactionRunner } from '@n8n/db';
 import { Service } from '@n8n/di';
 import { ErrorReporter } from 'n8n-core';
@@ -11,6 +16,8 @@ import { WorkflowStaticDataService } from '@/workflows/workflow-static-data.serv
 
 /** Narrows a stored cursor, which the persistence layer types more loosely. */
 const toPollCursor = (cursor: PollerCursor): PollCursor => cursor as PollCursor;
+
+class PollCursorFencedOut extends Error {}
 
 @Service()
 export class PollCursorService {
@@ -68,14 +75,26 @@ export class PollCursorService {
 		nodeId: string;
 		cursor: PollCursor;
 		payload: CreateExecutionPayload;
-	}): Promise<{ executionId: string; previousCursor: PollCursor }> {
-		const { workflowId, nodeId, cursor, payload } = args;
+		fence?: PollLeaseFence;
+	}): Promise<{ executionId: string; previousCursor: PollCursor } | null> {
+		const { workflowId, nodeId, cursor, payload, fence } = args;
 
-		return await this.transactionRunner.run({}, async (ctx) => {
-			const previousCursor = await this.stageCursor(workflowId, nodeId, cursor, ctx);
-			const executionId = await this.executionPersistence.create(payload, ctx);
-			return { executionId, previousCursor };
-		});
+		try {
+			return await this.transactionRunner.run({}, async (ctx) => {
+				const previousCursor = await this.stageCursor(workflowId, nodeId, cursor, ctx, fence);
+				if (previousCursor === null) throw new PollCursorFencedOut();
+				const executionId = await this.executionPersistence.create(payload, ctx);
+				return { executionId, previousCursor };
+			});
+		} catch (error) {
+			if (!(error instanceof PollCursorFencedOut)) throw error;
+			this.logger.debug('Poll cursor advance fenced out by a reclaimed lease', {
+				workflowId,
+				nodeId,
+				fence,
+			});
+			return null;
+		}
 	}
 
 	/**
@@ -88,15 +107,30 @@ export class PollCursorService {
 		nodeName: string;
 		cursor: PollCursor;
 		nodeStaticData: PollCursor;
-	}): Promise<void> {
-		const { workflowId, nodeId, nodeName, cursor, nodeStaticData } = args;
+		fence?: PollLeaseFence;
+	}): Promise<boolean> {
+		const { workflowId, nodeId, nodeName, cursor, nodeStaticData, fence } = args;
 
-		const previousCursor = await this.transactionRunner.run(
-			{},
-			async (ctx) => await this.stageCursor(workflowId, nodeId, cursor, ctx),
-		);
+		let previousCursor: PollCursor;
+
+		try {
+			previousCursor = await this.transactionRunner.run({}, async (ctx) => {
+				const staged = await this.stageCursor(workflowId, nodeId, cursor, ctx, fence);
+				if (staged === null) throw new PollCursorFencedOut();
+				return staged;
+			});
+		} catch (error) {
+			if (!(error instanceof PollCursorFencedOut)) throw error;
+			this.logger.debug('Poll cursor advance fenced out by a reclaimed lease', {
+				workflowId,
+				nodeId,
+				fence,
+			});
+			return false;
+		}
 
 		await this.mirrorToStaticData(workflowId, nodeName, cursor, nodeStaticData, previousCursor);
+		return true;
 	}
 
 	/**
@@ -187,14 +221,27 @@ export class PollCursorService {
 		nodeId: string,
 		cursor: PollCursor,
 		ctx: OperationContext,
-	): Promise<PollCursor> {
+		fence?: PollLeaseFence,
+	): Promise<PollCursor | null> {
 		const previousCursor = await this.pollerStateRepository.ensureCursor(
 			workflowId,
 			nodeId,
 			cursor,
 			ctx,
 		);
-		await this.pollerStateRepository.advanceCursor(workflowId, nodeId, cursor, ctx);
+		if (fence) {
+			const advanced = await this.pollerStateRepository.advanceCursor(
+				workflowId,
+				nodeId,
+				cursor,
+				ctx,
+				fence,
+			);
+			if (!advanced) return null;
+		} else {
+			await this.pollerStateRepository.advanceCursor(workflowId, nodeId, cursor, ctx);
+		}
+
 		return toPollCursor(previousCursor);
 	}
 }
