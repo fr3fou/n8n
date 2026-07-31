@@ -948,12 +948,14 @@ function renderFormShell({
 	formTitle,
 	resourceUrl,
 	credentials,
+	submitterEmail,
 }: {
 	res: Response;
 	req: Request;
 	formTitle: string;
 	resourceUrl: string;
 	credentials: CredentialCheckStatus[];
+	submitterEmail?: string;
 }) {
 	// The iframe loads the same form via a real URL (so the form's relative POST
 	// works exactly as it does top-level today) flagged as the inner render.
@@ -969,11 +971,14 @@ function renderFormShell({
 		connected: c.status === 'configured',
 		initial: initialOf(c.credentialName),
 		authorizationUrl: c.authorizationUrl,
-		revokeUrl: c.revokeUrl,
-		// `usedBy` (owning node) and `account` (connected identity) come from the
-		// backend-enrichment follow-up; rendered only when present.
+		// Kept so the client can build the per-caller revoke URL for the disconnect action.
+		resolverId: c.resolverId,
+		// The connected identity shown as "Connected as …". For the system (n8n)
+		// resolver this is the submitter themselves; surfacing the exact OAuth
+		// provider account (when it differs) is a backend-enrichment follow-up.
+		account: c.status === 'configured' ? submitterEmail : undefined,
+		// `usedBy` (owning node) comes from the backend-enrichment follow-up.
 		usedBy: undefined as string | undefined,
-		account: undefined as string | undefined,
 	}));
 
 	const total = rows.length;
@@ -990,6 +995,7 @@ function renderFormShell({
 		total,
 		connectedCount,
 		useDialog,
+		submitterEmail,
 		iconStack: rows.slice(0, 3).map((r) => r.initial),
 		moreCount: total > 3 ? total - 3 : 0,
 	});
@@ -1151,6 +1157,7 @@ export async function formWebhook(
 						formTitle,
 						resourceUrl,
 						credentials: credentialStatus.credentials,
+						submitterEmail: authedUser?.email,
 					});
 					return { noWebhookResponse: true };
 				}

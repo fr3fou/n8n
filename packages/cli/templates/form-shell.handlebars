@@ -15,9 +15,11 @@
 
 	The disabled Submit inside the iframe is UX only; the real guarantee is the
 	server-side readiness re-check on POST. Connect -> popup -> provider consent
-	-> n8n oauth-callback broadcasts 'success' -> we reload; the GET re-checks
-	readiness and, once everything is connected, renders the plain form.
-	The response sets `frame-ancestors 'none'`.
+	-> n8n oauth-callback broadcasts 'success' -> we mark that credential connected
+	in place (NO page reload — a reload re-runs the form's OAuth2 auth and bounces
+	the submitter back through consent). Once all are connected we post a non-secret
+	enable signal to the sandboxed form iframe. The response sets
+	`frame-ancestors 'none'`.
 -->
 
 <head>
@@ -139,7 +141,7 @@
 </head>
 
 <body>
-	<div class='shell'>
+	<div class='shell' data-submitter-email='{{submitterEmail}}'>
 		{{#if useDialog}}
 			<div class='req-strip'>
 				<div class='stack'>
@@ -159,14 +161,14 @@
 				<div class='req-title'>Required credentials</div>
 				<div class='req-sub'>Connect required credentials to run this form using your data.</div>
 				{{#each credentials}}
-					<div class='cred-row' data-cred-id='{{id}}' data-status='{{status}}'>
+					<div class='cred-row' data-cred-id='{{id}}' data-status='{{status}}' data-resolver-id='{{resolverId}}'>
 						<span class='cred-icon'>{{initial}}</span>
 						<span class='cred-meta'>
 							<span class='cred-name'>{{name}}</span>
-							<span class='cred-sub {{#if connected}}connected{{/if}}'>{{#if connected}}Connected{{else}}Not connected{{/if}}{{#if usedBy}} · used by {{usedBy}}{{/if}}</span>
+							<span class='cred-sub {{#if connected}}connected{{/if}}'>{{#if connected}}{{#if account}}Connected as {{account}}{{else}}Connected{{/if}}{{else}}Not connected{{/if}}{{#if usedBy}} · used by {{usedBy}}{{/if}}</span>
 						</span>
 						{{#if connected}}
-							<span class='cred-status-ok'><span class='dot'></span> {{#if account}}Connected as {{account}}{{else}}Connected{{/if}}</span>
+							<span class='cred-connected'><button type='button' class='btn-connected'><span class='dot'></span> Connected <span class='caret'>&#9662;</span></button><div class='cred-menu'><button type='button' class='btn-disconnect'>Disconnect</button></div></span>
 						{{else if authorizationUrl}}
 							<button class='btn btn-secondary connect' data-url='{{authorizationUrl}}'>{{#if (eq status 'expired')}}Reconnect{{else}}Connect{{/if}}</button>
 						{{else}}
@@ -194,14 +196,14 @@
 				<div class='dialog-sub'>Connect required credentials to run this form using your data.</div>
 				<div class='dialog-list'>
 					{{#each credentials}}
-						<div class='cred-row' data-cred-id='{{id}}' data-status='{{status}}'>
+						<div class='cred-row' data-cred-id='{{id}}' data-status='{{status}}' data-resolver-id='{{resolverId}}'>
 							<span class='cred-icon'>{{initial}}</span>
 							<span class='cred-meta'>
 								<span class='cred-name'>{{name}}</span>
-								<span class='cred-sub {{#if connected}}connected{{/if}}'>{{#if connected}}Connected{{else}}Not connected{{/if}}{{#if usedBy}} · used by {{usedBy}}{{/if}}</span>
+								<span class='cred-sub {{#if connected}}connected{{/if}}'>{{#if connected}}{{#if account}}Connected as {{account}}{{else}}Connected{{/if}}{{else}}Not connected{{/if}}{{#if usedBy}} · used by {{usedBy}}{{/if}}</span>
 							</span>
 							{{#if connected}}
-								<span class='cred-status-ok'><span class='dot'></span> {{#if account}}Connected as {{account}}{{else}}Connected{{/if}}</span>
+								<span class='cred-connected'><button type='button' class='btn-connected'><span class='dot'></span> Connected <span class='caret'>&#9662;</span></button><div class='cred-menu'><button type='button' class='btn-disconnect'>Disconnect</button></div></span>
 							{{else if authorizationUrl}}
 								<button class='btn btn-secondary connect' data-url='{{authorizationUrl}}'>{{#if (eq status 'expired')}}Reconnect{{else}}Connect{{/if}}</button>
 							{{else}}
@@ -247,6 +249,12 @@
 				}
 			}
 
+			var shellEl = document.querySelector('.shell');
+			var SUBMITTER_EMAIL = shellEl ? shellEl.getAttribute('data-submitter-email') || '' : '';
+			var CONNECTED_MENU_HTML =
+				'<button type="button" class="btn-connected"><span class="dot"></span> Connected <span class="caret">&#9662;</span></button>' +
+				'<div class="cred-menu"><button type="button" class="btn-disconnect">Disconnect</button></div>';
+
 			function markConnected(id) {
 				if (!id || connected[id]) return;
 				connected[id] = true;
@@ -254,13 +262,16 @@
 				document.querySelectorAll('.cred-row[data-cred-id="' + id + '"]').forEach(function (row) {
 					row.setAttribute('data-connected', 'true');
 					var sub = row.querySelector('.cred-sub');
-					if (sub) { sub.textContent = 'Connected'; sub.classList.add('connected'); }
+					if (sub) {
+						sub.textContent = SUBMITTER_EMAIL ? 'Connected as ' + SUBMITTER_EMAIL : 'Connected';
+						sub.classList.add('connected');
+					}
 					var btn = row.querySelector('.connect');
 					if (btn) {
-						var ok = document.createElement('span');
-						ok.className = 'cred-status-ok';
-						ok.innerHTML = '<span class="dot"></span> Connected';
-						btn.replaceWith(ok);
+						var wrap = document.createElement('span');
+						wrap.className = 'cred-connected';
+						wrap.innerHTML = CONNECTED_MENU_HTML;
+						btn.replaceWith(wrap);
 					}
 				});
 				refresh();
@@ -297,25 +308,45 @@
 				window.open(url, 'n8n-credential-connect', 'width=500,height=700,menubar=no,toolbar=no');
 			}
 
-			document.querySelectorAll('.connect').forEach(function (btn) {
-				btn.addEventListener('click', function () {
-					var row = btn.closest('.cred-row');
-					openConnect(row ? row.getAttribute('data-cred-id') : null, btn.getAttribute('data-url'));
-				});
-			});
-			document.querySelectorAll('.btn-disconnect').forEach(function (btn) {
-				btn.addEventListener('click', function () { openConnect(null, btn.getAttribute('data-url')); });
-			});
+			function disconnectCred(row) {
+				if (!row) return;
+				var id = row.getAttribute('data-cred-id');
+				var resolverId = row.getAttribute('data-resolver-id');
+				if (!id || !resolverId) return;
+				// Same-origin: the caller's identity rides the n8n session/form cookie
+				// (authSource=cookie). Reload on success so the server re-renders with this
+				// credential missing (fresh Connect link) and the submit disabled again.
+				var url = location.origin + '/rest/credentials/' + encodeURIComponent(id) +
+					'/revoke?resolverId=' + encodeURIComponent(resolverId) + '&authSource=cookie';
+				fetch(url, { method: 'DELETE', credentials: 'include' })
+					.then(function (r) { if (r.ok) location.reload(); })
+					.catch(function () {});
+			}
 
-			// Connected-state dropdown (disconnect)
-			document.querySelectorAll('[data-menu]').forEach(function (btn) {
-				btn.addEventListener('click', function (e) {
+			// Delegated clicks so controls created after markConnected() also work.
+			document.addEventListener('click', function (e) {
+				var connectBtn = e.target.closest('.connect');
+				if (connectBtn) {
+					var row = connectBtn.closest('.cred-row');
+					openConnect(row ? row.getAttribute('data-cred-id') : null, connectBtn.getAttribute('data-url'));
+					return;
+				}
+				var menuBtn = e.target.closest('.btn-connected');
+				if (menuBtn) {
 					e.stopPropagation();
-					var menu = btn.parentElement.querySelector('.cred-menu');
-					if (menu) menu.classList.toggle('open');
-				});
-			});
-			document.addEventListener('click', function () {
+					var menu = menuBtn.parentElement.querySelector('.cred-menu');
+					var wasOpen = menu && menu.classList.contains('open');
+					document.querySelectorAll('.cred-menu.open').forEach(function (m) { m.classList.remove('open'); });
+					if (menu && !wasOpen) menu.classList.add('open');
+					return;
+				}
+				var disconnectBtn = e.target.closest('.btn-disconnect');
+				if (disconnectBtn) {
+					e.stopPropagation();
+					disconnectCred(disconnectBtn.closest('.cred-row'));
+					return;
+				}
+				// Click elsewhere closes any open menu.
 				document.querySelectorAll('.cred-menu.open').forEach(function (m) { m.classList.remove('open'); });
 			});
 
