@@ -79,22 +79,12 @@ export class PollCursorService {
 	}): Promise<{ executionId: string; previousCursor: PollCursor } | null> {
 		const { workflowId, nodeId, cursor, payload, fence } = args;
 
-		try {
-			return await this.transactionRunner.run({}, async (ctx) => {
-				const previousCursor = await this.stageCursor(workflowId, nodeId, cursor, ctx, fence);
-				if (previousCursor === null) throw new PollCursorFencedOut();
-				const executionId = await this.executionPersistence.create(payload, ctx);
-				return { executionId, previousCursor };
-			});
-		} catch (error) {
-			if (!(error instanceof PollCursorFencedOut)) throw error;
-			this.logger.debug('Poll cursor advance fenced out by a reclaimed lease', {
-				workflowId,
-				nodeId,
-				fence,
-			});
-			return null;
-		}
+		return await this.runFenced(async (ctx) => {
+			const previousCursor = await this.stageCursor(workflowId, nodeId, cursor, ctx, fence);
+			if (previousCursor === null) throw new PollCursorFencedOut();
+			const executionId = await this.executionPersistence.create(payload, ctx);
+			return { executionId, previousCursor };
+		}, null);
 	}
 
 	/**
@@ -111,23 +101,12 @@ export class PollCursorService {
 	}): Promise<boolean> {
 		const { workflowId, nodeId, nodeName, cursor, nodeStaticData, fence } = args;
 
-		let previousCursor: PollCursor;
-
-		try {
-			previousCursor = await this.transactionRunner.run({}, async (ctx) => {
-				const staged = await this.stageCursor(workflowId, nodeId, cursor, ctx, fence);
-				if (staged === null) throw new PollCursorFencedOut();
-				return staged;
-			});
-		} catch (error) {
-			if (!(error instanceof PollCursorFencedOut)) throw error;
-			this.logger.debug('Poll cursor advance fenced out by a reclaimed lease', {
-				workflowId,
-				nodeId,
-				fence,
-			});
-			return false;
-		}
+		const previousCursor = await this.runFenced<PollCursor | false>(async (ctx) => {
+			const staged = await this.stageCursor(workflowId, nodeId, cursor, ctx, fence);
+			if (staged === null) throw new PollCursorFencedOut();
+			return staged;
+		}, false);
+		if (previousCursor === false) return false;
 
 		await this.mirrorToStaticData(workflowId, nodeName, cursor, nodeStaticData, previousCursor);
 		return true;
@@ -229,19 +208,27 @@ export class PollCursorService {
 			cursor,
 			ctx,
 		);
-		if (fence) {
-			const advanced = await this.pollerStateRepository.advanceCursor(
-				workflowId,
-				nodeId,
-				cursor,
-				ctx,
-				fence,
-			);
-			if (!advanced) return null;
-		} else {
-			await this.pollerStateRepository.advanceCursor(workflowId, nodeId, cursor, ctx);
-		}
+		const advanced = await this.pollerStateRepository.advanceCursor(
+			workflowId,
+			nodeId,
+			cursor,
+			ctx,
+			fence,
+		);
+		if (!advanced) return null;
 
 		return toPollCursor(previousCursor);
+	}
+
+	private async runFenced<T>(
+		work: (ctx: OperationContext) => Promise<T>,
+		fencedOutValue: T,
+	): Promise<T> {
+		try {
+			return await this.transactionRunner.run({}, work);
+		} catch (error) {
+			if (!(error instanceof PollCursorFencedOut)) throw error;
+			return fencedOutValue;
+		}
 	}
 }

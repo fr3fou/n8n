@@ -151,6 +151,7 @@ describe('PollCursorService', () => {
 		it('advances the cursor and creates the execution in one transaction', async () => {
 			const service = buildService();
 			pollerStateRepository.ensureCursor.mockResolvedValue({ lastItemId: 'a' });
+			pollerStateRepository.advanceCursor.mockResolvedValue(true);
 			executionPersistence.create.mockResolvedValue('exec-1');
 			const createPayload = payload();
 
@@ -178,6 +179,7 @@ describe('PollCursorService', () => {
 				'node-1',
 				{ lastItemId: 'b' },
 				ctx,
+				undefined,
 			);
 			expect(executionPersistence.create).toHaveBeenCalledWith(createPayload, ctx);
 		});
@@ -185,6 +187,7 @@ describe('PollCursorService', () => {
 		it('returns the cursor the row held before the advance', async () => {
 			const service = buildService();
 			pollerStateRepository.ensureCursor.mockResolvedValue({ lastItemId: 'a', etag: 'v1' });
+			pollerStateRepository.advanceCursor.mockResolvedValue(true);
 			executionPersistence.create.mockResolvedValue('exec-1');
 
 			const result = await service.commitWithExecution({
@@ -229,6 +232,7 @@ describe('PollCursorService', () => {
 		])('propagates $title to the caller', async ({ error }) => {
 			const service = buildService();
 			pollerStateRepository.ensureCursor.mockResolvedValue({ lastItemId: 'a' });
+			pollerStateRepository.advanceCursor.mockResolvedValue(true);
 			executionPersistence.create.mockRejectedValue(error);
 
 			await expect(
@@ -304,6 +308,7 @@ describe('PollCursorService', () => {
 		it('advances the cursor in one transaction without creating an execution', async () => {
 			const service = buildService();
 			pollerStateRepository.ensureCursor.mockResolvedValue({ lastItemId: 'a' });
+			pollerStateRepository.advanceCursor.mockResolvedValue(true);
 
 			await commitCursorOnly(service);
 
@@ -314,6 +319,7 @@ describe('PollCursorService', () => {
 				'node-1',
 				{ lastItemId: 'b' },
 				ctx,
+				undefined,
 			);
 			expect(executionPersistence.create).not.toHaveBeenCalled();
 		});
@@ -321,6 +327,7 @@ describe('PollCursorService', () => {
 		it('mirrors the advance to the static data of the polled node', async () => {
 			const service = buildService();
 			pollerStateRepository.ensureCursor.mockResolvedValue({ lastItemId: 'a', etag: 'v1' });
+			pollerStateRepository.advanceCursor.mockResolvedValue(true);
 			workflowStaticDataService.getStaticDataById.mockResolvedValue({
 				'node:Poll Node': { lastItemId: 'a', etag: 'v1' },
 			});
