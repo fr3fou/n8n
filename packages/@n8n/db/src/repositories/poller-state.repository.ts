@@ -6,13 +6,14 @@ import { UnexpectedError } from 'n8n-workflow';
 import { PollerState } from '../entities';
 import { BaseRepository } from './base-repository';
 import type { OperationContext } from '../services/transaction';
+import { TransactionRunner } from '../services/transaction';
 
 export type PollerCursor = Record<string, unknown>;
 
 @Service()
 export class PollerStateRepository extends BaseRepository<PollerState> {
-	constructor(dataSource: DataSource) {
-		super(PollerState, dataSource.manager);
+	constructor(dataSource: DataSource, transactionRunner: TransactionRunner) {
+		super(PollerState, dataSource.manager, transactionRunner);
 	}
 
 	async findCursor(
