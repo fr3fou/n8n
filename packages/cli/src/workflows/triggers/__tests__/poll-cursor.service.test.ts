@@ -154,12 +154,14 @@ describe('PollCursorService', () => {
 			executionPersistence.create.mockResolvedValue('exec-1');
 			const createPayload = payload();
 
-			const { executionId } = await service.commitWithExecution({
+			const result = await service.commitWithExecution({
 				workflowId: 'wf-1',
 				nodeId: 'node-1',
 				cursor: { lastItemId: 'b' },
 				payload: createPayload,
 			});
+			if (result === null) throw new Error('expected a commit result');
+			const { executionId } = result;
 
 			expect(executionId).toBe('exec-1');
 			expect(txRunner.run).toHaveBeenCalledTimes(1);
@@ -185,12 +187,14 @@ describe('PollCursorService', () => {
 			pollerStateRepository.ensureCursor.mockResolvedValue({ lastItemId: 'a', etag: 'v1' });
 			executionPersistence.create.mockResolvedValue('exec-1');
 
-			const { previousCursor } = await service.commitWithExecution({
+			const result = await service.commitWithExecution({
 				workflowId: 'wf-1',
 				nodeId: 'node-1',
 				cursor: { lastItemId: 'b' },
 				payload: payload(),
 			});
+			if (result === null) throw new Error('expected a commit result');
+			const { previousCursor } = result;
 
 			expect(previousCursor).toEqual({ lastItemId: 'a', etag: 'v1' });
 		});

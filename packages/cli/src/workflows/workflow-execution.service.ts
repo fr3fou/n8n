@@ -1,6 +1,12 @@
 import { Logger } from '@n8n/backend-common';
 import { GlobalConfig, WorkflowsConfig } from '@n8n/config';
-import type { Project, User, CreateExecutionPayload, WorkflowEntity } from '@n8n/db';
+import type {
+	Project,
+	User,
+	CreateExecutionPayload,
+	WorkflowEntity,
+	PollLeaseFence,
+} from '@n8n/db';
 import { ExecutionRepository, WorkflowRepository } from '@n8n/db';
 import { Service } from '@n8n/di';
 import { ensureError } from '@n8n/utils/errors/ensure-error';
@@ -127,6 +133,7 @@ export class WorkflowExecutionService {
 		cursor: PollCursor,
 		workflow: Workflow,
 		responsePromise?: IDeferredPromise<IExecuteResponsePromiseData>,
+		fence?: PollLeaseFence,
 	): Promise<string | undefined> {
 		const nodeExecutionStack: IExecuteData[] = [
 			{
@@ -187,12 +194,23 @@ export class WorkflowExecutionService {
 			tracingContext: runData.tracingContext ?? null,
 		};
 
-		const { executionId, previousCursor } = await this.pollCursorService.commitWithExecution({
+		const commitResult = await this.pollCursorService.commitWithExecution({
 			workflowId: workflowData.id,
 			nodeId: node.id,
 			cursor,
 			payload,
+			fence,
 		});
+
+		if (commitResult === null) {
+			this.logger.debug('Poll cursor commit was fenced out by a reclaimed lease', {
+				workflowId: workflowData.id,
+				nodeName: node.name,
+			});
+			return undefined;
+		}
+
+		const { executionId, previousCursor } = commitResult;
 
 		// A mirror failure is reported inside and must not stop the committed execution.
 		await this.pollCursorService.mirrorToStaticData(

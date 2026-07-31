@@ -545,7 +545,7 @@ describe('TriggerExecutionContextFactory', () => {
 
 		beforeEach(() => {
 			pollCursorService.readCursor.mockResolvedValue(null);
-			pollCursorService.commitCursorOnly.mockResolvedValue(undefined);
+			pollCursorService.commitCursorOnly.mockResolvedValue(true);
 			pollCursorService.mirrorToStaticData.mockResolvedValue(undefined);
 			workflowExecutionService.runPolledWorkflow.mockResolvedValue('exec-polled');
 
@@ -585,6 +585,7 @@ describe('TriggerExecutionContextFactory', () => {
 				{ lastItemId: 'a' },
 				workflow,
 				responsePromise,
+				undefined,
 			);
 			expect(workflowExecutionService.runWorkflow).not.toHaveBeenCalled();
 			expect(workflowStaticDataService.saveStaticData).not.toHaveBeenCalled();
@@ -769,6 +770,7 @@ describe('TriggerExecutionContextFactory', () => {
 				mode,
 				{ lastItemId: 'first-only' },
 				workflow,
+				undefined,
 				undefined,
 			);
 		});
@@ -1012,6 +1014,7 @@ describe('TriggerExecutionContextFactory', () => {
 				'trigger',
 				'update',
 				expect.any(Function),
+				undefined,
 			);
 
 			expect(getPollFunctions).toHaveBeenCalledWith(

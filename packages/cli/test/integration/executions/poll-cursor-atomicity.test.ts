@@ -84,12 +84,14 @@ describe('poll cursor atomicity', () => {
 	it('commits the cursor advance and the execution row together', async () => {
 		await pollCursorService.readCursor(workflow.id, nodeId, 'Poll Node', { lastItemId: 'a' });
 
-		const { executionId } = await pollCursorService.commitWithExecution({
+		const result = await pollCursorService.commitWithExecution({
 			workflowId: workflow.id,
 			nodeId,
 			cursor: { lastItemId: 'b' },
 			payload: buildPayload(),
 		});
+		if (result === null) throw new Error('expected a commit result');
+		const { executionId } = result;
 
 		expect(await pollerStateRepository.findCursor(workflow.id, nodeId)).toEqual({
 			lastItemId: 'b',
@@ -313,12 +315,14 @@ describe('poll cursor atomicity', () => {
 			await seedRunningTask();
 			await pollCursorService.readCursor(workflow.id, nodeId, 'Poll Node', { lastItemId: 'a' });
 
-			const { executionId } = await pollCursorService.commitWithExecution({
+			const result = await pollCursorService.commitWithExecution({
 				workflowId: workflow.id,
 				nodeId,
 				cursor: { lastItemId: 'b' },
 				payload: buildPayload(),
 			});
+			if (result === null) throw new Error('expected a commit result');
+			const { executionId } = result;
 
 			expect(await pollerStateRepository.findCursor(workflow.id, nodeId)).toEqual({
 				lastItemId: 'b',
