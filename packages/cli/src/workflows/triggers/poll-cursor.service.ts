@@ -17,6 +17,9 @@ import { WorkflowStaticDataService } from '@/workflows/workflow-static-data.serv
 /** Narrows a stored cursor, which the persistence layer types more loosely. */
 const toPollCursor = (cursor: PollerCursor): PollCursor => cursor as PollCursor;
 
+// Thrown inside a transaction callback so the whole transaction rolls back on a fence
+// miss: `ensureCursor` seeds the row with the staged cursor on a node's first poll, so
+// only a rollback undoes that write along with the rejected advance.
 class PollCursorFencedOut extends Error {}
 
 @Service()
@@ -220,6 +223,10 @@ export class PollCursorService {
 		return toPollCursor(previousCursor);
 	}
 
+	// Must wrap `run` directly: `run` joins an existing transaction when given one rather
+	// than opening a new one, so catching further out would roll nothing back and the
+	// row `stageCursor` seeded would commit anyway. Safe only because neither
+	// `commitWithExecution` nor `commitCursorOnly` is ever called with a context of its own.
 	private async runFenced<T>(
 		work: (ctx: OperationContext) => Promise<T>,
 		fencedOutValue: T,
