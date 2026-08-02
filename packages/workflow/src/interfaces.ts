@@ -2994,8 +2994,31 @@ export interface IWebhookData {
 
 export type WebhookType = 'default' | 'setup';
 
+/**
+ * Key under which an {@link IWebhookDescription} holds native (engine-free)
+ * resolvers for its expression-template fields, keyed by field name. Populated
+ * by `webhookDescriptionFields()` and read via `resolveWebhookDescriptionField()`.
+ * Backend-only: not serialized with the description.
+ */
+export const WEBHOOK_RESOLVERS: unique symbol = Symbol('webhookDescriptionResolvers');
+
+/**
+ * See {@link WEBHOOK_RESOLVERS}. Each resolver records the template it was
+ * generated from and applies only while the description still carries that
+ * exact template: a spread-and-override description (e.g. the Wait node reusing
+ * the Webhook node's) invalidates the overridden fields' resolvers automatically.
+ */
+export type NativeParameterResolvers = Record<
+	string,
+	{
+		template: string;
+		resolve: (parameters: INodeParameters) => NodeParameterValueType | undefined;
+	}
+>;
+
 export interface IWebhookDescription {
 	[key: string]: IHttpRequestMethods | WebhookResponseMode | boolean | string | undefined;
+	[WEBHOOK_RESOLVERS]?: NativeParameterResolvers;
 	httpMethod: IHttpRequestMethods | string;
 	isFullPath?: boolean;
 	name: WebhookType;
