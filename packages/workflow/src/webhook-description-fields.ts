@@ -59,6 +59,14 @@ export function fromParameter(path: string | string[], fallback?: string): Webho
  * function's source (as the Webhook node has long done by hand for
  * `getResponseCode`/`getResponseData`), and the resolver is the function
  * itself, so both representations are the same code.
+ *
+ * The function MUST be self-contained: a closure over any outer identifier
+ * (an import, a module constant) stringifies into a template referencing a
+ * name the expression sandbox cannot resolve — the resolver keeps working,
+ * but editor-side evaluation and the backend engine fallback break. A
+ * per-description parity corpus test (resolver vs engine, see the Webhook
+ * node's description.test.ts) catches this; add one for any node that
+ * declares `fromFunction` fields.
  */
 export function fromFunction<P>(
 	fn: (parameters: P) => NodeParameterValueType | undefined,

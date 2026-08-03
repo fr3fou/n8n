@@ -132,7 +132,15 @@ describe('fromParameter', () => {
 		});
 	});
 
-	it('yields undefined when walking into a missing parent, like the engine', () => {
+	it('yields undefined when walking into a missing parent, like the engine', async () => {
+		// 'undeclared' is not in the node type's properties, so no default is
+		// applied and the parent is truly absent — pins that the engine also
+		// yields undefined (it does, under both vitest engine projects) rather
+		// than throwing on the nested access.
+		const field = fromParameter(['undeclared', 'x']);
+		expect(viaResolver({}, field)).toBeUndefined();
+		expect(await viaEngine({}, field.template)).toBeUndefined();
+
 		expect(fromParameter(['options', 'responseContentType']).resolve({})).toBeUndefined();
 	});
 
