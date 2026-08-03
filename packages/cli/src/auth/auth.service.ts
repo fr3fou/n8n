@@ -70,6 +70,11 @@ export class AuthService {
 	 */
 	private skipBrowserIdCheckEndpoints: Array<string | RegExp>;
 
+	// The dynamic-credential revoke is a DELETE issued from the form hosting shell — a
+	// non-editor page that can't send the browser-id header, mirroring the authorize GET
+	// link above. Skipped only for this endpoint's own DELETE method.
+	private revokeBrowserIdSkipEndpoint: string;
+
 	constructor(
 		private readonly globalConfig: GlobalConfig,
 		private readonly logger: Logger,
@@ -117,6 +122,8 @@ export class AuthService {
 				`^/${escapeRegExp(restEndpoint)}/projects/[^/]+/agents/v2/:agentId/chat/attachments/:attachmentId$`,
 			),
 		];
+
+		this.revokeBrowserIdSkipEndpoint = `/${restEndpoint}/credentials/:id/revoke`;
 	}
 
 	createAuthMiddleware({
@@ -344,7 +351,10 @@ export class AuthService {
 		endpoint: string,
 		method: string,
 	) {
-		if (method === 'GET' && this.endpointSkipsBrowserIdCheck(endpoint)) {
+		if (
+			(method === 'GET' && this.endpointSkipsBrowserIdCheck(endpoint)) ||
+			(method === 'DELETE' && endpoint === this.revokeBrowserIdSkipEndpoint)
+		) {
 			this.logger.debug(`Skipped browserId check on ${endpoint}`);
 		} else if (
 			jwtPayload.browserId &&

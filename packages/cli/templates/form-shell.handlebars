@@ -115,7 +115,9 @@
 		.cred-connected { position: relative; }
 		.btn-connected { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; color: var(--color-ok); font-family: var(--font-family); font-size: 13px; font-weight: 600; cursor: pointer; padding: 6px 4px; }
 		.btn-connected .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-ok); }
-		.cred-menu { display: none; position: absolute; right: 0; top: 100%; margin-top: 4px; background: var(--color-card-bg); border: 1px solid var(--color-card-border); border-radius: 6px; box-shadow: var(--box-shadow-card); z-index: 2; }
+		/* Fixed (not absolute) so the menu escapes the dialog's overflow clipping and the
+		   footer; JS positions it against the trigger button and flips it up near the edge. */
+		.cred-menu { display: none; position: fixed; min-width: 150px; background: var(--color-card-bg); border: 1px solid var(--color-card-border); border-radius: 6px; box-shadow: var(--box-shadow-dialog); z-index: 30; }
 		.cred-menu.open { display: block; }
 		.btn-disconnect { display: block; width: 100%; text-align: left; white-space: nowrap; background: none; border: 0; padding: 8px 14px; font-family: var(--font-family); font-size: 13px; color: #a02f28; cursor: pointer; }
 		.btn-disconnect:hover { background: #fdeceb; }
@@ -124,7 +126,7 @@
 		.cred-blocked { font-size: 13px; color: var(--color-muted); }
 
 		/* --- Dialog --- */
-		.overlay { display: none; position: fixed; inset: 0; background: rgba(20, 20, 30, 0.4); align-items: center; justify-content: center; z-index: 10; padding: 16px; }
+		.overlay { display: none; position: fixed; inset: 0; background: rgba(20, 20, 30, 0.28); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); align-items: center; justify-content: center; z-index: 10; padding: 16px; }
 		.overlay.open { display: flex; }
 		.dialog { width: 480px; max-width: 100%; max-height: calc(100vh - 48px); display: flex; flex-direction: column; background: var(--color-card-bg); border-radius: 12px; box-shadow: var(--box-shadow-dialog); overflow: hidden; }
 		.dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 8px; }
@@ -244,8 +246,14 @@
 				document.querySelectorAll('.strip-count, .dialog-count').forEach(function (el) {
 					el.textContent = txt;
 				});
-				if (count >= total && frame && frame.contentWindow) {
-					frame.contentWindow.postMessage({ type: 'n8n-shell-credentials-ready' }, '*');
+				// Enable the form's submit once everything is connected, and re-disable it if a
+				// credential is later disconnected. The server-side POST gate stays the real
+				// guarantee regardless of this UX signal.
+				if (frame && frame.contentWindow) {
+					frame.contentWindow.postMessage(
+						{ type: count >= total ? 'n8n-shell-credentials-ready' : 'n8n-shell-credentials-not-ready' },
+						'*',
+					);
 				}
 			}
 
@@ -308,18 +316,41 @@
 				window.open(url, 'n8n-credential-connect', 'width=500,height=700,menubar=no,toolbar=no');
 			}
 
+			function markDisconnected(id) {
+				if (!id) return;
+				delete connected[id];
+				document.querySelectorAll('.cred-row[data-cred-id="' + id + '"]').forEach(function (row) {
+					row.removeAttribute('data-connected');
+					var sub = row.querySelector('.cred-sub');
+					if (sub) { sub.textContent = 'Not connected'; sub.classList.remove('connected'); }
+					var wrap = row.querySelector('.cred-connected');
+					if (wrap) {
+						// No fresh per-caller authorize link exists client-side after a
+						// disconnect, so this Connect reloads to fetch one from the server.
+						var btn = document.createElement('button');
+						btn.className = 'btn btn-secondary connect';
+						btn.setAttribute('data-reload', '1');
+						btn.textContent = 'Connect';
+						wrap.replaceWith(btn);
+					}
+				});
+				refresh();
+			}
+
 			function disconnectCred(row) {
 				if (!row) return;
 				var id = row.getAttribute('data-cred-id');
 				var resolverId = row.getAttribute('data-resolver-id');
 				if (!id || !resolverId) return;
-				// Same-origin: the caller's identity rides the n8n session/form cookie
-				// (authSource=cookie). Reload on success so the server re-renders with this
-				// credential missing (fresh Connect link) and the submit disabled again.
+				// The submitter is signed in (they authenticated for the OAuth2 consent), so
+				// the revoke rides their n8n session cookie. The server skips the browser-id
+				// check for this endpoint (the form page can't send that header, same as the
+				// authorize link). Revert the row in place on success — no reload, no consent
+				// bounce.
 				var url = location.origin + '/rest/credentials/' + encodeURIComponent(id) +
 					'/revoke?resolverId=' + encodeURIComponent(resolverId) + '&authSource=cookie';
 				fetch(url, { method: 'DELETE', credentials: 'include' })
-					.then(function (r) { if (r.ok) location.reload(); })
+					.then(function (r) { if (r.ok) markDisconnected(id); })
 					.catch(function () {});
 			}
 
@@ -327,6 +358,8 @@
 			document.addEventListener('click', function (e) {
 				var connectBtn = e.target.closest('.connect');
 				if (connectBtn) {
+					// A post-disconnect Connect has no link yet — reload to get a fresh one.
+					if (connectBtn.getAttribute('data-reload')) { location.reload(); return; }
 					var row = connectBtn.closest('.cred-row');
 					openConnect(row ? row.getAttribute('data-cred-id') : null, connectBtn.getAttribute('data-url'));
 					return;
@@ -337,7 +370,15 @@
 					var menu = menuBtn.parentElement.querySelector('.cred-menu');
 					var wasOpen = menu && menu.classList.contains('open');
 					document.querySelectorAll('.cred-menu.open').forEach(function (m) { m.classList.remove('open'); });
-					if (menu && !wasOpen) menu.classList.add('open');
+					if (menu && !wasOpen) {
+						menu.classList.add('open');
+						// Position the fixed menu against the button; flip above if there's no
+						// room below (keeps it clear of the dialog footer / viewport edge).
+						var r = menuBtn.getBoundingClientRect();
+						var flipUp = window.innerHeight - r.bottom < menu.offsetHeight + 12;
+						menu.style.top = (flipUp ? r.top - menu.offsetHeight - 4 : r.bottom + 4) + 'px';
+						menu.style.left = r.right - menu.offsetWidth + 'px';
+					}
 					return;
 				}
 				var disconnectBtn = e.target.closest('.btn-disconnect');
