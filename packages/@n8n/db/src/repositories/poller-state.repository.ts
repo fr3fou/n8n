@@ -4,8 +4,8 @@ import type { QueryDeepPartialEntity } from '@n8n/typeorm/query-builder/QueryPar
 import { UnexpectedError } from 'n8n-workflow';
 
 import { PollerState } from '../entities';
-import type { PollerCursor } from '../entities/poller-state';
 import { BaseRepository } from './base-repository';
+import type { PollerCursor } from '../entities/poller-state';
 import type { OperationContext } from '../services/transaction';
 import { TransactionRunner } from '../services/transaction';
 
