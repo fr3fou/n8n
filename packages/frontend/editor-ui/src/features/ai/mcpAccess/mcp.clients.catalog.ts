@@ -136,6 +136,7 @@ url = "${serverUrl}"`;
 					name: 'ChatGPT',
 					category: 'web',
 					icon: OpenAiIcon,
+					addUrl: 'https://chatgpt.com/#settings/connectors',
 				},
 			],
 		},
