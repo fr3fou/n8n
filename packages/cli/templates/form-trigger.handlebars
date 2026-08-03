@@ -1122,10 +1122,8 @@
 		</script>
 		{{#if shellInner}}
 		<script>
-			// Rendered inside the trusted hosting shell (sandboxed, null-origin iframe).
-			// The shell sends a non-secret signal as credentials connect/disconnect: enable
-			// submit once all are connected, re-disable it if one is later disconnected.
-			// Enforcement is still the server-side POST gate.
+			// Toggle submit on the hosting shell's readiness signals; the server-side
+			// POST gate is the real enforcement.
 			window.addEventListener('message', function (event) {
 				if (event.source !== window.parent) return;
 				if (!event.data) return;
