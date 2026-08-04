@@ -244,6 +244,10 @@ export const sandbox: Service<SandboxResult> = {
 		}
 
 		if (USE_HOST_DOCKER) {
+			const runnerName = runnerContainer.getName().replace(/^\//, '');
+			await execFileAsync('docker', ['network', 'connect', 'runner-bridge', runnerName], {
+				maxBuffer: DOCKER_COMMAND_MAX_BUFFER,
+			});
 			await ensureHostDockerImage(TEST_CONTAINER_IMAGES.sandboxSandbox);
 		} else {
 			await loadSandboxImageIntoRunner(runnerContainer, TEST_CONTAINER_IMAGES.sandboxSandbox);
