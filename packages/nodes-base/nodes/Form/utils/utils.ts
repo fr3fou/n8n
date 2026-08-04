@@ -279,7 +279,8 @@ export function prepareFormData({
 		buttonLabel,
 		dangerousCustomCss: sanitizeCustomCss(customCss),
 		authToken,
-		shellInner,
+		// Only set inside the hosting shell, so the plain form's render data is unchanged.
+		shellInner: shellInner || undefined,
 	};
 
 	if (redirectUrl) {
