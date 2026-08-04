@@ -245,6 +245,22 @@ export const sandbox: Service<SandboxResult> = {
 
 		if (USE_HOST_DOCKER) {
 			const runnerName = runnerContainer.getName().replace(/^\//, '');
+			await execFileAsync('docker', ['network', 'rm', 'runner-bridge'], {
+				maxBuffer: DOCKER_COMMAND_MAX_BUFFER,
+			});
+			await execFileAsync(
+				'docker',
+				[
+					'network',
+					'create',
+					'--driver',
+					'bridge',
+					'--opt',
+					'com.docker.network.bridge.enable_icc=true',
+					'runner-bridge',
+				],
+				{ maxBuffer: DOCKER_COMMAND_MAX_BUFFER },
+			);
 			await execFileAsync('docker', ['network', 'connect', 'runner-bridge', runnerName], {
 				maxBuffer: DOCKER_COMMAND_MAX_BUFFER,
 			});
