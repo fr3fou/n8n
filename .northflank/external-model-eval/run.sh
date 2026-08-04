@@ -12,11 +12,9 @@ EVAL_ITERATIONS="${EVAL_ITERATIONS:-1}"
 EVAL_EXPERIMENT_NAME="${EVAL_EXPERIMENT_NAME:-model-comparison-kimi-k3-northflank}"
 SANDBOX_PROVIDER="${SANDBOX_PROVIDER:-n8n-sandbox}"
 DOCKER_STORAGE_DRIVER="${DOCKER_STORAGE_DRIVER:-vfs}"
-DOCKER_CGROUPNS_MODE="${DOCKER_CGROUPNS_MODE:-host}"
 
 dockerd \
 	--host=unix:///var/run/docker.sock \
-	--default-cgroupns-mode="${DOCKER_CGROUPNS_MODE}" \
 	--storage-driver="${DOCKER_STORAGE_DRIVER}" \
 	>/tmp/dockerd.log 2>&1 &
 
