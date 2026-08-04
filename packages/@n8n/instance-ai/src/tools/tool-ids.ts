@@ -59,6 +59,11 @@ export const ALWAYS_LOADED_TOOL_NAMES = new Set<string>([
 	DOMAIN_TOOL_IDS.NODES,
 	ORCHESTRATION_TOOL_IDS.VERIFY_BUILT_WORKFLOW,
 	DOMAIN_TOOL_IDS.RESEARCH,
+	// Paired with RESEARCH on purpose: the research tool tells the agent to prefer
+	// n8n's own docs for n8n questions, but deferring n8n-docs priced that route at
+	// search_tools + load_tool while web search stayed one call away — so the agent
+	// web-searched things the docs answer (INS-749).
+	DOMAIN_TOOL_IDS.N8N_DOCS,
 	DOMAIN_TOOL_IDS.AGENTS,
 	'web-search',
 	'fetch-url',
