@@ -24,3 +24,4 @@ Optional runtime variables:
 - `EVAL_EXPERIMENT_NAME`
 - `SANDBOX_PROVIDER` (default `n8n-sandbox`)
 - `DOCKER_STORAGE_DRIVER` (default `vfs`)
+- `N8N_TEST_SANDBOX_RUNNER_USE_HOST_DOCKER` (default `true`; avoids nested DinD)

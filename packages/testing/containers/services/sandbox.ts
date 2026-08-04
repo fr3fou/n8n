@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { chmodSync, mkdtempSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -21,6 +21,9 @@ const REGISTRATION_TOKEN = 'ci-reg-token';
 const SANDBOX_READY_TIMEOUT_MS = 120_000;
 const SANDBOX_READY_POLL_INTERVAL_MS = 1_000;
 const DOCKER_COMMAND_MAX_BUFFER = 10 * 1024 * 1024;
+const USE_HOST_DOCKER = process.env.N8N_TEST_SANDBOX_RUNNER_USE_HOST_DOCKER === 'true';
+const HOST_DOCKER_SOCKET = '/var/run/docker.sock';
+const SANDBOX_DATA_DIR = '/var/sandboxes';
 
 const execFileAsync = promisify(execFile);
 
@@ -180,7 +183,7 @@ export const sandbox: Service<SandboxResult> = {
 
 		let runnerContainer: StartedTestContainer;
 		try {
-			runnerContainer = await new GenericContainer(TEST_CONTAINER_IMAGES.sandboxRunner)
+			let runner = new GenericContainer(TEST_CONTAINER_IMAGES.sandboxRunner)
 				.withName(`${projectName}-${RUNNER_HOSTNAME}`)
 				.withNetwork(network)
 				.withNetworkAliases(RUNNER_HOSTNAME)
@@ -215,13 +218,31 @@ export const sandbox: Service<SandboxResult> = {
 					).withStartupTimeout(120_000),
 				)
 				.withLogConsumer(runnerConsumer)
-				.withReuse()
-				.start();
+				.withReuse();
+
+			if (USE_HOST_DOCKER) {
+				mkdirSync(SANDBOX_DATA_DIR, { recursive: true });
+				runner = runner
+					.withBindMounts([
+						{ source: HOST_DOCKER_SOCKET, target: HOST_DOCKER_SOCKET, mode: 'rw' },
+						{ source: SANDBOX_DATA_DIR, target: SANDBOX_DATA_DIR, mode: 'rw' },
+					])
+					.withEntrypoint(['/sbin/tini', '--', 'sh', '-c'])
+					.withCommand([
+						'docker network inspect runner-bridge >/dev/null 2>&1 || docker network create --driver bridge --opt com.docker.network.bridge.enable_icc=false runner-bridge >/dev/null; exec /usr/local/bin/sandbox-runner',
+					]);
+			}
+
+			runnerContainer = await runner.start();
 		} catch (error: unknown) {
 			return throwRunnerLogs(error);
 		}
 
-		await loadSandboxImageIntoRunner(runnerContainer, TEST_CONTAINER_IMAGES.sandboxSandbox);
+		if (USE_HOST_DOCKER) {
+			await ensureHostDockerImage(TEST_CONTAINER_IMAGES.sandboxSandbox);
+		} else {
+			await loadSandboxImageIntoRunner(runnerContainer, TEST_CONTAINER_IMAGES.sandboxSandbox);
+		}
 		await waitForSandboxApiReady(apiContainer);
 
 		return {
