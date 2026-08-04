@@ -1141,7 +1141,9 @@ export async function formWebhook(
 			oAuth2Token &&
 			!shellInner
 		) {
-			const resourceUrl = trimTrailingSlash(context.getNodeWebhookUrl('default') ?? '');
+			// Must name the endpoint actually being served (test vs production) — the
+			// OAuth2 token is bound to that resource, same as in the auth path above.
+			const resourceUrl = trimTrailingSlash(context.getWebhookResourceUrl('default') ?? '');
 			if (resourceUrl) {
 				await context.establishTriggerIdentity(oAuth2Token, resourceUrl);
 				const credentialStatus = await context.checkTriggerCredentialStatus();
