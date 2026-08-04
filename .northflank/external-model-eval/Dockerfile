@@ -27,7 +27,7 @@ WORKDIR /workspace/n8n
 COPY . .
 
 RUN DOCKER_BUILD=true pnpm install --frozen-lockfile
-RUN INCLUDE_TEST_CONTROLLER=true node scripts/build-n8n.mjs
+RUN DOCKER_BUILD=true INCLUDE_TEST_CONTROLLER=true node scripts/build-n8n.mjs
 
 RUN chmod +x .northflank/external-model-eval/run.sh
 
