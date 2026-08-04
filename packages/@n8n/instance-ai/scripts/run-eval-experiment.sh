@@ -303,7 +303,7 @@ cleanup() {
 		log "keeping containers: ${CONTAINER_NAMES[*]:-none}"
 		exit "$status"
 	fi
-	if [[ ${#CONTAINER_NAMES[@]:-0} -gt 0 ]]; then
+	if [[ ${#CONTAINER_NAMES[@]} -gt 0 ]]; then
 		log "removing lane containers..."
 		docker rm -f "${CONTAINER_NAMES[@]}" >/dev/null 2>&1 || true
 	fi
@@ -621,6 +621,11 @@ if [[ "$MODEL" == custom/* ]]; then
 	log "custom/* → lane API key empty; CLI verifier/mocks still use Anthropic"
 fi
 
+LANE_RESOURCE_ARGS=(--memory 2.5g --memory-swap 2.5g)
+if [[ "${N8N_TEST_SANDBOX_RUNNER_USE_HOST_DOCKER:-false}" == true ]]; then
+	LANE_RESOURCE_ARGS=()
+fi
+
 for i in "${!PORTS[@]}"; do
 	port="${PORTS[$i]}"
 	name="n8n-eval-$((i + 1))"
@@ -633,7 +638,7 @@ for i in "${!PORTS[@]}"; do
 
 	docker run -d --name "$name" \
 		"${NETWORK_ARGS[@]+"${NETWORK_ARGS[@]}"}" \
-		--memory 2.5g --memory-swap 2.5g \
+		"${LANE_RESOURCE_ARGS[@]+"${LANE_RESOURCE_ARGS[@]}"}" \
 		--restart on-failure \
 		--log-opt max-size=50m --log-opt max-file=2 \
 		-e NODE_OPTIONS=--max-old-space-size=2048 \
