@@ -234,7 +234,7 @@ export const sandbox: Service<SandboxResult> = {
 				runner = runner
 					.withEntrypoint(['/sbin/tini', '--', 'sh', '-c'])
 					.withCommand([
-						'iptables -w 5 -N DOCKER-USER >/dev/null 2>&1 || true; docker network inspect runner-bridge >/dev/null 2>&1 || docker network create --driver bridge --opt com.docker.network.bridge.enable_icc=false runner-bridge >/dev/null; exec /usr/local/bin/sandbox-runner',
+						'iptables -w 5 -N DOCKER-USER >/dev/null 2>&1 || true; docker network inspect runner-bridge >/dev/null 2>&1 || docker network create --driver bridge runner-bridge >/dev/null; exec /usr/local/bin/sandbox-runner',
 					]);
 			}
 
