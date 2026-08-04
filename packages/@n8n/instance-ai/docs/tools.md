@@ -760,7 +760,9 @@ connect one.
   an `mcpConnectRequest` payload, which the frontend renders as the inline
   "Available tools" card. Already-connected slugs are a no-op. On resume the tool
   re-reads the user's connections and reports only verified slugs — the client's
-  `connectedSlugs` is a hint, never the source of truth.
+  `connectedSlugs` is a hint, never the source of truth. A resume that verifies at
+  least one slug rebuilds the agent, so the new server's tools are reachable through
+  `search_tools` in the same turn rather than the next one.
 
 ## Other Domain Tools
 

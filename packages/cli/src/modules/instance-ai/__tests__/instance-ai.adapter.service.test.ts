@@ -3874,12 +3874,14 @@ describe('MCP registry discovery', () => {
 			const results = await context.mcpService!.search(['drive']);
 
 			expect(search).toHaveBeenCalledWith(['drive']);
-			// url/transport/authentication/credentialType/metadata never reach the agent.
+			// url/transport/authentication/metadata stay host-side; credentialType is
+			// carried so the connect card can offer a Connect button from the payload alone.
 			expect(results).toEqual([
 				{
 					slug: 'google-drive',
 					title: 'Google Drive',
 					description: 'Work with Drive files',
+					credentialType: 'googleDriveMcpOAuth2Api',
 					tools: [{ name: 'list_files', title: 'List files' }],
 					isConnected: false,
 				},
@@ -3938,6 +3940,7 @@ describe('MCP registry discovery', () => {
 					slug: 'google-drive',
 					title: 'Google Drive',
 					description: 'Work with Drive files',
+					credentialType: 'googleDriveMcpOAuth2Api',
 					tools: [{ name: 'list_files', title: 'List files' }],
 					isConnected: false,
 				},

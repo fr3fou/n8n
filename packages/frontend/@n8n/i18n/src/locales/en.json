@@ -6605,6 +6605,7 @@
 	"instanceAi.mcpConnect.browseAll.prompt": "Not what you're looking for?",
 	"instanceAi.mcpConnect.browseAll.link": "Browse all tools",
 	"instanceAi.mcpConnect.skip": "Skip connecting",
+	"instanceAi.mcpConnect.continue": "Continue",
 	"instanceAi.browserUse.modal.title": "Connect Browser Use",
 	"instanceAi.browserUse.modal.description": "Let the agent automate tasks in your browser. Install the n8n Browser Use extension and connect it - no other software needed.",
 	"instanceAi.browserUse.step.extension.title": "1. Install the Chrome extension",

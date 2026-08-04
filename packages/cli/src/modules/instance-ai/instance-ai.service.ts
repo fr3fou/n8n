@@ -4630,7 +4630,13 @@ export class InstanceAiService {
 		}
 	}
 
-	private async rebuildAgentForAutoSetupResume(
+	/**
+	 * Rebuild the agent for a resume whose confirmation changed what the agent
+	 * can reach — credentials created by auto-setup, tools from a just-connected
+	 * MCP server. Both attach at construction time, so the suspended instance
+	 * would keep running against the pre-confirmation environment.
+	 */
+	private async rebuildAgentForResume(
 		user: User,
 		threadId: string,
 		runId: string,
@@ -4663,7 +4669,7 @@ export class InstanceAiService {
 				orchestrationContext: rebuilt.orchestrationContext,
 			};
 		} catch (error: unknown) {
-			this.logger.warn('Failed to rebuild agent for credential auto-setup resume', {
+			this.logger.warn('Failed to rebuild agent for resume', {
 				threadId,
 				runId,
 				error: getErrorMessage(error),
@@ -4787,8 +4793,8 @@ export class InstanceAiService {
 		let resumeAgent = agent;
 		let resumeModelId = modelId;
 		let resumeOrchestrationContext = orchestrationContext;
-		if (data.autoSetup) {
-			const rebuilt = await this.rebuildAgentForAutoSetupResume(
+		if (data.autoSetup || data.connectedSlugs?.length) {
+			const rebuilt = await this.rebuildAgentForResume(
 				activeUser,
 				threadId,
 				runId,
@@ -4797,13 +4803,18 @@ export class InstanceAiService {
 				runHandoff,
 				messageGroupId,
 			);
-			if (!rebuilt) {
+			// Auto-setup credentials are the point of the resume, so a failed rebuild
+			// leaves nothing worth resuming. Newly connected tools are additive: resume
+			// on the original agent and the user gets them from their next message.
+			if (!rebuilt && data.autoSetup) {
 				this.cancelRun(threadId, 'agent_rebuild_failed');
 				return null;
 			}
-			resumeAgent = rebuilt.agent;
-			resumeModelId = rebuilt.modelId;
-			resumeOrchestrationContext = rebuilt.orchestrationContext;
+			if (rebuilt) {
+				resumeAgent = rebuilt.agent;
+				resumeModelId = rebuilt.modelId;
+				resumeOrchestrationContext = rebuilt.orchestrationContext;
+			}
 		}
 
 		this.startProcessResumedStream(resumeAgent, resumeData, {

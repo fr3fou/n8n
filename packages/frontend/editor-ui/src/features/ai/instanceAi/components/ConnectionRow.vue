@@ -10,22 +10,32 @@ type RowAction = 'connect' | 'disconnect' | 'settings' | 'remove';
 export type ConnectionStatus = 'connected' | 'waiting' | 'disconnected' | 'none';
 export type ConnectionRowIcon = IconName | { type: 'file'; src: string };
 
-const props = defineProps<{
-	name: string;
-	subtitle: string;
-	icon: ConnectionRowIcon;
-	status: ConnectionStatus;
-	actions: RowAction[];
-	dropdownPortalTarget?: HTMLElement;
-	/** Replaces the status dot + menu with a primary button, and makes the row
-	 *  itself inert (nothing to open settings for yet). */
-	primaryActionLabel?: string;
-	primaryActionLoading?: boolean;
-	/** Renders the status as text next to the dot instead of only a tooltip. */
-	showStatusLabel?: boolean;
-	/** Overrides the actions-menu trigger glyph (defaults to the ellipsis). */
-	menuActivatorIcon?: IconName;
-}>();
+/**
+ * `status` reports the connection and opens its settings on click. `connect` offers
+ * a button instead: there is no status to show and nothing to open yet, so the row
+ * itself is inert and `connectLabel` is required.
+ */
+export type ConnectionRowVariant = 'status' | 'connect';
+
+const props = withDefaults(
+	defineProps<{
+		name: string;
+		subtitle: string;
+		icon: ConnectionRowIcon;
+		status: ConnectionStatus;
+		actions: RowAction[];
+		dropdownPortalTarget?: HTMLElement;
+		variant?: ConnectionRowVariant;
+		/** Required by the `connect` variant, ignored by `status`. */
+		connectLabel?: string;
+		connectLoading?: boolean;
+		/** Renders the status as text next to the dot instead of only a tooltip. */
+		showStatusLabel?: boolean;
+		/** Overrides the actions-menu trigger glyph (defaults to the ellipsis). */
+		menuActivatorIcon?: IconName;
+	}>(),
+	{ variant: 'status' },
+);
 
 const iconSource = computed<{ type: 'icon'; name: IconName } | { type: 'file'; src: string }>(
 	() => {
@@ -65,7 +75,7 @@ const STATUS_LABEL_KEYS = {
 	disconnected: 'instanceAi.connections.row.status.disconnected',
 } satisfies Record<Exclude<ConnectionStatus, 'none'>, BaseTextKey>;
 
-const statusTooltip = computed(() =>
+const statusLabel = computed(() =>
 	props.status === 'none' ? undefined : i18n.baseText(STATUS_LABEL_KEYS[props.status]),
 );
 
@@ -77,13 +87,13 @@ function handleSelect(action: RowAction) {
 }
 
 function handleRowClick() {
-	if (props.primaryActionLabel) return;
+	if (props.variant === 'connect') return;
 	emit('openSettings');
 }
 </script>
 
 <template>
-	<div :class="[$style.row, primaryActionLabel && $style.rowStatic]" @click="handleRowClick">
+	<div :class="[$style.row, variant === 'connect' && $style.rowStatic]" @click="handleRowClick">
 		<span :class="$style.iconWrap">
 			<img
 				v-if="iconSource.type === 'file'"
@@ -101,14 +111,14 @@ function handleRowClick() {
 			<N8nText size="xsmall" color="text-light">{{ subtitle }}</N8nText>
 		</div>
 		<N8nButton
-			v-if="primaryActionLabel"
+			v-if="variant === 'connect'"
 			variant="solid"
 			size="small"
-			:loading="primaryActionLoading"
+			:loading="connectLoading"
 			data-test-id="instance-ai-connection-row-primary-action"
 			@click.stop="emit('connect')"
 		>
-			{{ primaryActionLabel }}
+			{{ connectLabel }}
 		</N8nButton>
 		<template v-else>
 			<template v-if="status !== 'none'">
@@ -119,12 +129,10 @@ function handleRowClick() {
 						status === 'waiting' && $style.dotWaiting,
 						status === 'disconnected' && $style.dotDisconnected,
 					]"
-					:title="showStatusLabel ? undefined : statusTooltip"
+					:title="showStatusLabel ? undefined : statusLabel"
 					data-test-id="instance-ai-connection-row-status"
 				/>
-				<N8nText v-if="showStatusLabel" size="small" color="text-light">{{
-					statusTooltip
-				}}</N8nText>
+				<N8nText v-if="showStatusLabel" size="small" color="text-light">{{ statusLabel }}</N8nText>
 			</template>
 			<div @click.stop>
 				<N8nDropdownMenu

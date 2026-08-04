@@ -128,7 +128,7 @@ describe('InstanceAiMcpConnectCard', () => {
 		await nextTick();
 
 		expect(emitted().resolve).toBeUndefined();
-		expect(getByTestId('instance-ai-mcp-connect-skip')).toBeVisible();
+		expect(getByTestId('instance-ai-mcp-connect-resolve')).toBeVisible();
 	});
 
 	it('stays pending when the user backs out of the credential flow', async () => {
@@ -143,12 +143,12 @@ describe('InstanceAiMcpConnectCard', () => {
 	it('resolves as unapproved when skipped', async () => {
 		const { getByTestId, emitted } = renderComponent({ props: { servers: [BRAVE_PAYLOAD] } });
 
-		await fireEvent.click(getByTestId('instance-ai-mcp-connect-skip'));
+		await fireEvent.click(getByTestId('instance-ai-mcp-connect-resolve'));
 
 		expect(emitted().resolve).toEqual([[{ approved: false, connectedSlugs: [] }]]);
 	});
 
-	it('reports the slugs connected so far when skipping the rest', async () => {
+	it('continues as approved with what was connected when some rows are left', async () => {
 		mcpStoreMock.mockReturnValue(
 			makeMcpStore({ connections: [{ id: 'conn-1', serverSlug: 'brave' }] }),
 		);
@@ -156,9 +156,21 @@ describe('InstanceAiMcpConnectCard', () => {
 			props: { servers: [BRAVE_PAYLOAD, { serverSlug: 'exa', title: 'Exa' }] },
 		});
 
-		await fireEvent.click(getByTestId('instance-ai-mcp-connect-skip'));
+		expect(getByTestId('instance-ai-mcp-connect-resolve')).toHaveTextContent(
+			'instanceAi.mcpConnect.continue',
+		);
 
-		expect(emitted().resolve).toEqual([[{ approved: false, connectedSlugs: ['brave'] }]]);
+		await fireEvent.click(getByTestId('instance-ai-mcp-connect-resolve'));
+
+		expect(emitted().resolve).toEqual([[{ approved: true, connectedSlugs: ['brave'] }]]);
+	});
+
+	it('offers a skip label while nothing is connected', () => {
+		const { getByTestId } = renderComponent({ props: { servers: [BRAVE_PAYLOAD] } });
+
+		expect(getByTestId('instance-ai-mcp-connect-resolve')).toHaveTextContent(
+			'instanceAi.mcpConnect.skip',
+		);
 	});
 
 	it('opens the tools modal from browse all', async () => {
@@ -180,7 +192,7 @@ describe('InstanceAiMcpConnectCard', () => {
 		});
 
 		expect(queryByTestId('instance-ai-connection-row-primary-action')).toBeNull();
-		expect(queryByTestId('instance-ai-mcp-connect-skip')).toBeNull();
+		expect(queryByTestId('instance-ai-mcp-connect-resolve')).toBeNull();
 		expect(getByText('instanceAi.connections.row.status.connected')).toBeVisible();
 		expect(getByTestId('instance-ai-connection-row-status')).toBeVisible();
 	});
@@ -191,7 +203,7 @@ describe('InstanceAiMcpConnectCard', () => {
 		});
 
 		expect(queryByTestId('instance-ai-connection-row-primary-action')).toBeNull();
-		expect(queryByTestId('instance-ai-mcp-connect-skip')).toBeNull();
+		expect(queryByTestId('instance-ai-mcp-connect-resolve')).toBeNull();
 	});
 
 	it('renders the expired title with no actions', () => {
@@ -200,7 +212,7 @@ describe('InstanceAiMcpConnectCard', () => {
 		});
 
 		expect(getByText('instanceAi.mcpConnect.titleExpired')).toBeVisible();
-		expect(queryByTestId('instance-ai-mcp-connect-skip')).toBeNull();
+		expect(queryByTestId('instance-ai-mcp-connect-resolve')).toBeNull();
 	});
 
 	it('offers no connect button while the credential type is unknown', () => {
@@ -209,7 +221,24 @@ describe('InstanceAiMcpConnectCard', () => {
 		const { queryByTestId, getByTestId } = renderComponent({ props: { servers: [BRAVE_PAYLOAD] } });
 
 		expect(queryByTestId('instance-ai-connection-row-primary-action')).toBeNull();
-		expect(getByTestId('instance-ai-mcp-connect-skip')).toBeVisible();
+		expect(getByTestId('instance-ai-mcp-connect-resolve')).toBeVisible();
+	});
+
+	// Without the payload fallback a failed catalog fetch leaves Skip as the only
+	// action, which reads as "this tool can't be connected".
+	it('connects from the payload credential type when the catalog is unavailable', async () => {
+		mcpStoreMock.mockReturnValue(makeMcpStore({ catalog: null }));
+
+		const { getByTestId } = renderComponent({
+			props: { servers: [{ ...BRAVE_PAYLOAD, credentialType: 'braveMcpOAuth2Api' }] },
+		});
+
+		await fireEvent.click(getByTestId('instance-ai-connection-row-primary-action'));
+
+		expect(connectServerMock).toHaveBeenCalledWith({
+			slug: 'brave',
+			credentialType: 'braveMcpOAuth2Api',
+		});
 	});
 
 	describe('rows that were never connected', () => {
@@ -218,7 +247,7 @@ describe('InstanceAiMcpConnectCard', () => {
 				props: { servers: [BRAVE_PAYLOAD] },
 			});
 
-			await fireEvent.click(getByTestId('instance-ai-mcp-connect-skip'));
+			await fireEvent.click(getByTestId('instance-ai-mcp-connect-resolve'));
 
 			expect(queryByTestId('instance-ai-connection-row-status')).toBeNull();
 			expect(queryByText('instanceAi.connections.row.status.disconnected')).toBeNull();

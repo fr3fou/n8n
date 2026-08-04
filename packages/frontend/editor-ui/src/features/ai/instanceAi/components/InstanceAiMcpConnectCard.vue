@@ -16,11 +16,15 @@ import { useInstanceAiMcpTelemetry } from '../instanceAiMcp.telemetry';
 import { useMcpServerConnect } from '../composables/useMcpServerConnect';
 import { connectionRowIcon } from '../toolIcons';
 import ConfirmationFooter from './ConfirmationFooter.vue';
-import ConnectionRow, { type ConnectionRowIcon } from './ConnectionRow.vue';
+import ConnectionRow, {
+	type ConnectionRowIcon,
+	type ConnectionRowVariant,
+} from './ConnectionRow.vue';
 
 const props = defineProps<{
 	servers: InstanceAiMcpConnectServer[];
-	/** The card has settled — keep it in the transcript, but inert. */
+	/** The card has settled: it stays in the transcript with no way left to resolve
+	 *  it, but connected rows keep their live settings/disconnect actions. */
 	readOnly?: boolean;
 	/** The underlying confirmation is gone (TTL prune, restart, cancel). */
 	expired?: boolean;
@@ -58,10 +62,9 @@ interface CardRow {
 }
 
 /**
- * The live registry entry wins over the payload snapshot: it carries the icon and
- * credential type, and a replayed card should reflect today's registry. Connected
- * state is likewise read now rather than replayed, so a card can show a server
- * that was connected here and since removed as unconnected.
+ * The live registry entry wins over the payload snapshot — it carries the icon and
+ * credential type. Connected state is read now rather than replayed, so a card can
+ * show a server that was connected here and since removed as unconnected.
  */
 const rows = computed<CardRow[]>(() =>
 	props.servers.map((server) => {
@@ -72,13 +75,14 @@ const rows = computed<CardRow[]>(() =>
 			title: entry?.title ?? server.title,
 			subtitle: entry?.tagline ?? server.tagline ?? '',
 			icon: connectionRowIcon(entry?.icons ?? [], uiStore.appliedTheme),
-			credentialType: entry?.credentialType,
+			credentialType: entry?.credentialType ?? server.credentialType,
 			connectionId: connection?.id,
 		};
 	}),
 );
 
 const isActionable = computed(() => !props.readOnly && !props.expired && !submitted.value);
+const anyConnected = computed(() => rows.value.some((row) => row.connectionId));
 
 function finish(approved: boolean) {
 	if (submitted.value) return;
@@ -99,6 +103,11 @@ watch(
 	},
 	{ immediate: true },
 );
+
+/** Only a row we can actually start a credential flow for gets a Connect button. */
+function rowVariant(row: CardRow): ConnectionRowVariant {
+	return !row.connectionId && isActionable.value && row.credentialType ? 'connect' : 'status';
+}
 
 async function handleConnect(row: CardRow) {
 	if (!isActionable.value || connectingSlug.value || !row.credentialType) return;
@@ -159,12 +168,9 @@ async function handleDisconnect(row: CardRow) {
 				:actions="row.connectionId ? ['settings', 'disconnect'] : []"
 				show-status-label
 				menu-activator-icon="chevron-down"
-				:primary-action-label="
-					row.connectionId || !isActionable || !row.credentialType
-						? undefined
-						: i18n.baseText('instanceAi.connections.row.connect')
-				"
-				:primary-action-loading="connectingSlug === row.serverSlug"
+				:variant="rowVariant(row)"
+				:connect-label="i18n.baseText('instanceAi.connections.row.connect')"
+				:connect-loading="connectingSlug === row.serverSlug"
 				@connect="handleConnect(row)"
 				@open-settings="openSettings(row)"
 				@disconnect="handleDisconnect(row)"
@@ -187,14 +193,20 @@ async function handleDisconnect(row: CardRow) {
 					</N8nText>
 				</button>
 			</span>
+			<!-- Doubles as continue: with several rows offered, connecting one leaves the
+			     card pending, and "Skip connecting" would misdescribe carrying on. -->
 			<N8nButton
 				variant="ghost"
 				size="small"
 				:disabled="!!connectingSlug"
-				data-test-id="instance-ai-mcp-connect-skip"
-				@click="finish(false)"
+				data-test-id="instance-ai-mcp-connect-resolve"
+				@click="finish(anyConnected)"
 			>
-				{{ i18n.baseText('instanceAi.mcpConnect.skip') }}
+				{{
+					i18n.baseText(
+						anyConnected ? 'instanceAi.mcpConnect.continue' : 'instanceAi.mcpConnect.skip',
+					)
+				}}
 			</N8nButton>
 		</ConfirmationFooter>
 	</div>

@@ -48,7 +48,7 @@ const { mockConnect, mockUpdateConnection, mcpStoreMock } = vi.hoisted(() => {
 			connectionsByServerSlug: new Map(),
 			connectionToolsById: new Map(),
 			fetchCatalogLazy: vi.fn(),
-			fetchConnections: vi.fn(),
+			ensureConnectionsLoaded: vi.fn(),
 			fetchConnectionToolsLazy: vi.fn(),
 			connect: mockConnect,
 			updateConnection: mockUpdateConnection,

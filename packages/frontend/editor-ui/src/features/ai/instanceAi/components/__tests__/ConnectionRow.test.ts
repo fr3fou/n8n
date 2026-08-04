@@ -19,9 +19,9 @@ const baseProps = {
 };
 
 describe('ConnectionRow', () => {
-	it('emits connect from the primary action without opening settings', async () => {
+	it('emits connect from the connect variant without opening settings', async () => {
 		const { getByTestId, emitted } = renderComponent({
-			props: { ...baseProps, primaryActionLabel: 'Connect' },
+			props: { ...baseProps, variant: 'connect' as const, connectLabel: 'Connect' },
 		});
 
 		await fireEvent.click(getByTestId('instance-ai-connection-row-primary-action'));
@@ -30,9 +30,9 @@ describe('ConnectionRow', () => {
 		expect(emitted().openSettings).toBeUndefined();
 	});
 
-	it('does not open settings when clicking a row with a primary action', async () => {
+	it('does not open settings when clicking a connect-variant row', async () => {
 		const { getByText, emitted } = renderComponent({
-			props: { ...baseProps, primaryActionLabel: 'Connect' },
+			props: { ...baseProps, variant: 'connect' as const, connectLabel: 'Connect' },
 		});
 
 		await fireEvent.click(getByText('Brave'));

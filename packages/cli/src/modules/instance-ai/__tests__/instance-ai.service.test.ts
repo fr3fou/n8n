@@ -1856,7 +1856,7 @@ type SuspendedRunResumeServiceInternals = {
 	processResumedStream: Mock;
 	suspendedThreads: { dropPendingConfirmation: Mock };
 	trackInFlightExecution: Mock;
-	rebuildAgentForAutoSetupResume: Mock;
+	rebuildAgentForResume: Mock;
 	threadPushRef: { get: Mock };
 };
 
@@ -1891,7 +1891,7 @@ function createSuspendedRunResumeService(): SuspendedRunResumeServiceInternals {
 	service.dbSnapshotStorage = {};
 	service.tracing = { createOrchestratorResumeTraceContext: vi.fn(async () => undefined) };
 	service.processResumedStream = vi.fn();
-	service.rebuildAgentForAutoSetupResume = vi.fn();
+	service.rebuildAgentForResume = vi.fn();
 	service.threadPushRef = { get: vi.fn(() => undefined) };
 	return service;
 }
@@ -2440,7 +2440,7 @@ describe('InstanceAiService — suspended run user revalidation', () => {
 		const freshUser = { id: 'user-1', disabled: false } as User;
 		service.revalidateActiveUser.mockResolvedValue(freshUser);
 		const rebuiltAgent = { id: 'rebuilt-agent' };
-		service.rebuildAgentForAutoSetupResume.mockResolvedValue({
+		service.rebuildAgentForResume.mockResolvedValue({
 			agent: rebuiltAgent,
 			modelId: { provider: 'anthropic', model: 'claude' },
 		});
@@ -2451,7 +2451,7 @@ describe('InstanceAiService — suspended run user revalidation', () => {
 		});
 
 		expect(result).toEqual({ ok: true, runId: 'run-1' });
-		expect(service.rebuildAgentForAutoSetupResume).toHaveBeenCalledWith(
+		expect(service.rebuildAgentForResume).toHaveBeenCalledWith(
 			freshUser,
 			'thread-a',
 			'run-1',
@@ -2473,7 +2473,7 @@ describe('InstanceAiService — suspended run user revalidation', () => {
 		const service = createSuspendedRunResumeService();
 		const freshUser = { id: 'user-1', disabled: false } as User;
 		service.revalidateActiveUser.mockResolvedValue(freshUser);
-		service.rebuildAgentForAutoSetupResume.mockResolvedValue(undefined);
+		service.rebuildAgentForResume.mockResolvedValue(undefined);
 
 		const result = await service.resumeSuspendedRun('user-1', 'req-1', {
 			approved: true,
@@ -2485,6 +2485,23 @@ describe('InstanceAiService — suspended run user revalidation', () => {
 		expect(service.processResumedStream).not.toHaveBeenCalled();
 	});
 
+	// Newly connected tools are additive, so a failed rebuild must not cost the user
+	// the run — they just get the tools from their next message instead.
+	it('resumes on the original agent when a connect-only rebuild fails', async () => {
+		const service = createSuspendedRunResumeService();
+		service.revalidateActiveUser.mockResolvedValue({ id: 'user-1', disabled: false } as User);
+		service.rebuildAgentForResume.mockResolvedValue(undefined);
+
+		const result = await service.resumeSuspendedRun('user-1', 'req-1', {
+			approved: true,
+			connectedSlugs: ['notion'],
+		});
+
+		expect(result).toEqual({ ok: true, runId: 'run-1' });
+		expect(service.cancelRun).not.toHaveBeenCalled();
+		expect(service.processResumedStream).toHaveBeenCalled();
+	});
+
 	it('does not rebuild the agent for a plain resume without autoSetup', async () => {
 		const service = createSuspendedRunResumeService();
 		const freshUser = { id: 'user-1', disabled: false } as User;
@@ -2493,12 +2510,13 @@ describe('InstanceAiService — suspended run user revalidation', () => {
 		const result = await service.resumeSuspendedRun('user-1', 'req-1', { approved: true });
 
 		expect(result).toEqual({ ok: true, runId: 'run-1' });
-		expect(service.rebuildAgentForAutoSetupResume).not.toHaveBeenCalled();
+		expect(service.rebuildAgentForResume).not.toHaveBeenCalled();
 	});
 
 	it('threads the connected MCP slugs into the resume data', async () => {
 		const service = createSuspendedRunResumeService();
 		service.revalidateActiveUser.mockResolvedValue({ id: 'user-1', disabled: false } as User);
+		service.rebuildAgentForResume.mockResolvedValue({ agent: {}, modelId: undefined });
 
 		await service.resumeSuspendedRun('user-1', 'req-1', {
 			approved: true,
@@ -2509,6 +2527,59 @@ describe('InstanceAiService — suspended run user revalidation', () => {
 			{ input: { resumeFields: string[] } },
 		];
 		expect(options.input.resumeFields).toContain('connectedSlugs');
+		expect(service.processResumedStream).toHaveBeenCalledWith(
+			expect.any(Object),
+			expect.objectContaining({ connectedSlugs: ['brave'] }),
+			expect.any(Object),
+		);
+	});
+
+	// A freshly connected MCP server only contributes tools at agent construction,
+	// so the resumed turn has to run on a rebuilt agent to use them right away.
+	it('rebuilds the agent when the resume reports a newly connected MCP server', async () => {
+		const service = createSuspendedRunResumeService();
+		const freshUser = { id: 'user-1', disabled: false } as User;
+		service.revalidateActiveUser.mockResolvedValue(freshUser);
+		const rebuiltAgent = { id: 'rebuilt-agent' };
+		service.rebuildAgentForResume.mockResolvedValue({
+			agent: rebuiltAgent,
+			modelId: { provider: 'anthropic', model: 'claude' },
+		});
+
+		const result = await service.resumeSuspendedRun('user-1', 'req-1', {
+			approved: true,
+			connectedSlugs: ['notion'],
+		});
+
+		expect(result).toEqual({ ok: true, runId: 'run-1' });
+		expect(service.rebuildAgentForResume).toHaveBeenCalledWith(
+			freshUser,
+			'thread-a',
+			'run-1',
+			expect.any(AbortController),
+			undefined,
+			undefined,
+			'group-1',
+		);
+		expect(service.processResumedStream).toHaveBeenCalledWith(
+			rebuiltAgent,
+			expect.objectContaining({ connectedSlugs: ['notion'] }),
+			expect.any(Object),
+		);
+	});
+
+	it('does not rebuild the agent when the connect card reports no new connection', async () => {
+		const service = createSuspendedRunResumeService();
+		service.revalidateActiveUser.mockResolvedValue({ id: 'user-1', disabled: false } as User);
+
+		const result = await service.resumeSuspendedRun('user-1', 'req-1', {
+			approved: false,
+			connectedSlugs: [],
+		});
+
+		expect(result).toEqual({ ok: true, runId: 'run-1' });
+		expect(service.rebuildAgentForResume).not.toHaveBeenCalled();
+		expect(service.processResumedStream).toHaveBeenCalled();
 	});
 
 	it('includes the substantive user response in the resume trace input', async () => {
@@ -2538,9 +2609,9 @@ describe('InstanceAiService — suspended run user revalidation', () => {
 	});
 });
 
-describe('InstanceAiService — rebuildAgentForAutoSetupResume', () => {
+describe('InstanceAiService — rebuildAgentForResume', () => {
 	type RebuildAgentServiceInternals = {
-		rebuildAgentForAutoSetupResume: (
+		rebuildAgentForResume: (
 			user: User,
 			threadId: string,
 			runId: string,
@@ -2575,7 +2646,7 @@ describe('InstanceAiService — rebuildAgentForAutoSetupResume', () => {
 		});
 		const runHandoff = { handoffReason: undefined };
 
-		const result = await service.rebuildAgentForAutoSetupResume(
+		const result = await service.rebuildAgentForResume(
 			fakeUser,
 			'thread-a',
 			'run-1',
@@ -2602,7 +2673,7 @@ describe('InstanceAiService — rebuildAgentForAutoSetupResume', () => {
 			orchestrationContext,
 		});
 
-		await service.rebuildAgentForAutoSetupResume(
+		await service.rebuildAgentForResume(
 			fakeUser,
 			'thread-a',
 			'run-1',
@@ -2619,7 +2690,7 @@ describe('InstanceAiService — rebuildAgentForAutoSetupResume', () => {
 		const service = createRebuildAgentService();
 		service.buildFreshInstanceAgent.mockRejectedValue(new Error('boom'));
 
-		const result = await service.rebuildAgentForAutoSetupResume(
+		const result = await service.rebuildAgentForResume(
 			fakeUser,
 			'thread-a',
 			'run-1',
@@ -2631,7 +2702,7 @@ describe('InstanceAiService — rebuildAgentForAutoSetupResume', () => {
 
 		expect(result).toBeUndefined();
 		expect(service.logger.warn).toHaveBeenCalledWith(
-			'Failed to rebuild agent for credential auto-setup resume',
+			'Failed to rebuild agent for resume',
 			expect.objectContaining({ threadId: 'thread-a', runId: 'run-1' }),
 		);
 	});

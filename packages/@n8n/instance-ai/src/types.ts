@@ -490,6 +490,7 @@ export interface McpRegistryServerSummary {
 	slug: string;
 	title: string;
 	description: string;
+	credentialType: string;
 	tools: Array<{ name: string; title?: string }>;
 	isConnected: boolean;
 }

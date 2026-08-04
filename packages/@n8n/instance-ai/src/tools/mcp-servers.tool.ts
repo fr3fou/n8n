@@ -18,8 +18,7 @@ import { sanitizeInputSchema } from '../agent/sanitize-mcp-schemas';
 import type { InstanceAiContext, InstanceAiMcpService } from '../types';
 import { DOMAIN_TOOL_IDS } from './tool-ids';
 
-/** Beyond a shortlist the user is browsing, which the card's "Browse all tools"
- *  footer link covers. */
+/** A card longer than this is browsing, which the "Browse all tools" link covers. */
 const MAX_SUGGESTED_SERVERS = 3;
 
 const searchAction = z.object({
@@ -51,10 +50,8 @@ const connectAction = z.object({
 
 const mcpServersRuntimeInputSchema = z.discriminatedUnion('action', [searchAction, connectAction]);
 
-// A top-level union has no `type` in JSON Schema and Anthropic rejects the whole
-// request ("input_schema.type: Field required"), so the provider gets a flattened
-// object while the handler keeps parsing against the union for real narrowing and
-// per-action validation.
+// Anthropic rejects a tool schema with no top-level `type`, so the provider gets a
+// flattened object; the handler parses the union for narrowing and per-action rules.
 const mcpServersToolInputSchema = sanitizeInputSchema(mcpServersRuntimeInputSchema);
 
 const searchOutputSchema = z.object({
@@ -97,6 +94,7 @@ const suspendSchema = z.object({
 				serverSlug: z.string(),
 				title: z.string(),
 				tagline: z.string().optional(),
+				credentialType: z.string().optional(),
 			}),
 		),
 	}),
@@ -160,7 +158,7 @@ async function handleConnect(
 
 		return {
 			connectedSlugs: verified,
-			message: `Connected: ${verified.join(', ')}. Their tools become available through \`search_tools\` from the next message onwards.`,
+			message: `Connected: ${verified.join(', ')}. Their tools are available now — find them with \`search_tools\` and carry on with the request.`,
 		};
 	}
 
@@ -182,7 +180,9 @@ async function handleConnect(
 
 	// One connection per server is a backend invariant, so re-offering a connected
 	// one could only confuse the user.
-	const alreadyConnected = servers.filter((server) => server.isConnected).map((s) => s.slug);
+	const alreadyConnected = servers
+		.filter((server) => server.isConnected)
+		.map((server) => server.slug);
 	const offerable = servers.filter((server) => !server.isConnected);
 
 	if (offerable.length === 0) {
@@ -191,7 +191,7 @@ async function handleConnect(
 			...(unknownSlugs.length ? { unknownSlugs } : {}),
 			message:
 				`Already connected: ${alreadyConnected.join(', ')}. Look for their tools with \`search_tools\` and use them instead of offering a connection. ` +
-				`If none show up, the connection needs re-authorising — ask the user to check it under "Connections".` +
+				'If none show up, the connection needs re-authorising — ask the user to check it under "Connections".' +
 				unknownNote,
 		};
 	}
@@ -204,6 +204,7 @@ async function handleConnect(
 			servers: offerable.map((server) => ({
 				serverSlug: server.slug,
 				title: server.title,
+				credentialType: server.credentialType,
 				...(server.description ? { tagline: server.description } : {}),
 			})),
 		},

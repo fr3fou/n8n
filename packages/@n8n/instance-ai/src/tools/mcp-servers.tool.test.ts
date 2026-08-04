@@ -9,6 +9,7 @@ const notion: McpRegistryServerSummary = {
 	slug: 'notion',
 	title: 'Notion',
 	description: 'Work with Notion pages and databases',
+	credentialType: 'notionMcpOAuth2Api',
 	tools: [{ name: 'create_page', title: 'Create page' }],
 	isConnected: false,
 };
@@ -17,6 +18,7 @@ const linear: McpRegistryServerSummary = {
 	slug: 'linear',
 	title: 'Linear',
 	description: 'Track issues in Linear',
+	credentialType: 'linearMcpOAuth2Api',
 	tools: [{ name: 'create_issue' }],
 	isConnected: true,
 };
@@ -226,6 +228,7 @@ describe('mcp-servers tool', () => {
 					{
 						serverSlug: 'notion',
 						title: 'Notion',
+						credentialType: 'notionMcpOAuth2Api',
 						tagline: 'Work with Notion pages and databases',
 					},
 				],
@@ -330,6 +333,9 @@ describe('mcp-servers tool', () => {
 
 			expect(output.connectedSlugs).toEqual(['notion']);
 			expect(output.message).toContain('search_tools');
+			// The resume rebuilds the agent with the new server attached, so the
+			// tools are reachable in this turn rather than the next one.
+			expect(output.message).toContain('available now');
 		});
 
 		it('ignores a client claim the server cannot confirm', async () => {

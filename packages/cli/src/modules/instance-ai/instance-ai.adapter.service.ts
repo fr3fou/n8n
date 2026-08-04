@@ -469,6 +469,7 @@ export class InstanceAiAdapterService {
 				slug: server.slug,
 				title: server.title,
 				description: server.description,
+				credentialType: server.credentialType,
 				tools: server.tools,
 				isConnected: connectedSlugs.has(server.slug),
 			}));

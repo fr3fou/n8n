@@ -52,25 +52,27 @@ export const useInstanceAiMcpStore = defineStore('instanceAiMcp', () => {
 
 	async function fetchConnections(): Promise<void> {
 		isLoadingConnections.value = true;
-		const attempt = (async () => {
-			try {
-				connections.value = await fetchMcpConnections(rootStore.restApiContext);
-				hasFetchedConnections.value = true;
-			} catch (error) {
-				toast.showError(error, i18n.baseText('instanceAi.mcp.error.fetchConnections'));
-			} finally {
-				isLoadingConnections.value = false;
-				inFlightConnectionsFetch = null;
-			}
-		})();
-		inFlightConnectionsFetch = attempt;
-		await attempt;
+		try {
+			connections.value = await fetchMcpConnections(rootStore.restApiContext);
+			hasFetchedConnections.value = true;
+		} catch (error) {
+			toast.showError(error, i18n.baseText('instanceAi.mcp.error.fetchConnections'));
+		} finally {
+			isLoadingConnections.value = false;
+		}
 	}
 
-	/** For surfaces that need connections but can't assume the sidebar mounted. */
+	/**
+	 * Load connections once for the surfaces that need them but don't own them —
+	 * the sidebar, the tools modal, an inline chat card — in whichever order they
+	 * happen to mount. A failed fetch is retried by the next caller.
+	 */
 	async function ensureConnectionsLoaded(): Promise<void> {
 		if (hasFetchedConnections.value) return;
-		await (inFlightConnectionsFetch ?? fetchConnections());
+		inFlightConnectionsFetch ??= fetchConnections().finally(() => {
+			inFlightConnectionsFetch = null;
+		});
+		await inFlightConnectionsFetch;
 	}
 
 	async function fetchCatalogLazy(): Promise<void> {
@@ -190,7 +192,6 @@ export const useInstanceAiMcpStore = defineStore('instanceAiMcp', () => {
 		isLoadingConnections,
 		isLoadingCatalog,
 		connectionsByServerSlug,
-		fetchConnections,
 		ensureConnectionsLoaded,
 		fetchCatalogLazy,
 		fetchConnectionToolsLazy,

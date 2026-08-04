@@ -103,11 +103,11 @@ describe('useInstanceAiMcpStore', () => {
 		store = useInstanceAiMcpStore();
 	});
 
-	describe('fetchConnections', () => {
+	describe('ensureConnectionsLoaded', () => {
 		it('loads connections into state', async () => {
 			mockFetchMcpConnections.mockResolvedValue([makeConnection()]);
 
-			await store.fetchConnections();
+			await store.ensureConnectionsLoaded();
 
 			expect(store.connections).toHaveLength(1);
 			expect(store.connections[0].id).toBe('conn-1');
@@ -117,10 +117,41 @@ describe('useInstanceAiMcpStore', () => {
 			const error = new Error('boom');
 			mockFetchMcpConnections.mockRejectedValue(error);
 
-			await store.fetchConnections();
+			await store.ensureConnectionsLoaded();
 
 			expect(mockShowError).toHaveBeenCalledWith(error, 'instanceAi.mcp.error.fetchConnections');
 			expect(store.connections).toEqual([]);
+		});
+
+		it('fetches once for callers that mount in any order', async () => {
+			mockFetchMcpConnections.mockResolvedValue([makeConnection()]);
+
+			await Promise.all([store.ensureConnectionsLoaded(), store.ensureConnectionsLoaded()]);
+			await store.ensureConnectionsLoaded();
+
+			expect(mockFetchMcpConnections).toHaveBeenCalledTimes(1);
+			expect(store.connections).toHaveLength(1);
+		});
+
+		it('leaves a failed fetch for the next caller to retry', async () => {
+			mockFetchMcpConnections.mockRejectedValueOnce(new Error('boom'));
+			mockFetchMcpConnections.mockResolvedValue([makeConnection()]);
+
+			await store.ensureConnectionsLoaded();
+			await store.ensureConnectionsLoaded();
+
+			expect(mockFetchMcpConnections).toHaveBeenCalledTimes(2);
+			expect(store.connections).toHaveLength(1);
+		});
+
+		it('refetches after a reset', async () => {
+			mockFetchMcpConnections.mockResolvedValue([makeConnection()]);
+
+			await store.ensureConnectionsLoaded();
+			store.reset();
+			await store.ensureConnectionsLoaded();
+
+			expect(mockFetchMcpConnections).toHaveBeenCalledTimes(2);
 		});
 	});
 
@@ -193,7 +224,7 @@ describe('useInstanceAiMcpStore', () => {
 			const existing = makeConnection({ id: 'conn-1' });
 			const updated = makeConnection({ id: 'conn-1', credentialName: 'Renamed' });
 			mockFetchMcpConnections.mockResolvedValue([existing]);
-			await store.fetchConnections();
+			await store.ensureConnectionsLoaded();
 			mockUpdateMcpConnection.mockResolvedValue(updated);
 
 			const result = await store.updateConnection('conn-1', { inclusionMode: 'except' });
@@ -207,7 +238,7 @@ describe('useInstanceAiMcpStore', () => {
 		it('removes the connection from state', async () => {
 			const existing = makeConnection({ id: 'conn-1' });
 			mockFetchMcpConnections.mockResolvedValue([existing]);
-			await store.fetchConnections();
+			await store.ensureConnectionsLoaded();
 			mockDeleteMcpConnection.mockResolvedValue(undefined);
 
 			const ok = await store.disconnect('conn-1');
@@ -225,7 +256,7 @@ describe('useInstanceAiMcpStore', () => {
 				makeConnection({ id: 'c3', serverSlug: 'notion', credentialId: 'cred-3' }),
 			]);
 
-			await store.fetchConnections();
+			await store.ensureConnectionsLoaded();
 
 			expect(store.connectionsByServerSlug.get('linear')).toHaveLength(2);
 			expect(store.connectionsByServerSlug.get('notion')).toHaveLength(1);
@@ -238,7 +269,7 @@ describe('useInstanceAiMcpStore', () => {
 				makeConnection({ id: 'conn-1', serverSlug: 'linear', credentialId: 'cred-1' }),
 				makeConnection({ id: 'conn-2', serverSlug: 'notion', credentialId: 'cred-2' }),
 			]);
-			await store.fetchConnections();
+			await store.ensureConnectionsLoaded();
 			store.connectionToolsById.set('conn-1', [{ name: 'search' }]);
 		});
 

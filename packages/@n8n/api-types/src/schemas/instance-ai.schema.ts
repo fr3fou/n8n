@@ -452,12 +452,15 @@ export const channelConfigSchema = z.object({
 });
 export type InstanceAiChannelConfig = z.infer<typeof channelConfigSchema>;
 
-/** `title`/`tagline` are a snapshot for the pre-catalog render; the card prefers
- *  the live registry entry it resolves by `serverSlug`. */
+/** A snapshot the card can render and act on without the registry catalog: it
+ *  prefers the live entry it resolves by `serverSlug`, and falls back to these when
+ *  that fetch hasn't landed or failed. `credentialType` is what makes the fallback
+ *  actionable rather than just readable. */
 export const mcpConnectServerSchema = z.object({
 	serverSlug: z.string(),
 	title: z.string(),
 	tagline: z.string().optional(),
+	credentialType: z.string().optional(),
 });
 export type InstanceAiMcpConnectServer = z.infer<typeof mcpConnectServerSchema>;
 
