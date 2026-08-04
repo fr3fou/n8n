@@ -15,7 +15,8 @@ RUN apk add --no-cache \
 		npm \
 		python3
 
-ENV ENV=/root/.profile \
+ENV SHELL=/bin/sh \
+	ENV=/root/.profile \
 	PNPM_HOME=/root/.local/share/pnpm \
 	PATH=/root/.local/share/pnpm:$PATH
 
