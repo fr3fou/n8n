@@ -5,6 +5,7 @@ import { ForbiddenError } from '@/errors/response-errors/forbidden.error';
 import { EventService } from '@/events/event.service';
 
 import type { CredentialBindingRequest } from '../entities/credential/credential.types';
+import { removesUnpackagedWorkflows } from '../entities/folder/folder-conflict-policy';
 import type { DataTableImportRequest } from '../entities/data-table/data-table.types';
 import { ProjectImporter } from '../entities/project/project-importer';
 import type { TagImportRequest } from '../entities/tag/tag.types';
@@ -14,11 +15,13 @@ import { collectPlannedWorkflowBindings } from '../entities/workflow/workflow-im
 import { WorkflowPublisher } from '../entities/workflow/workflow-publisher';
 import type { PackageReader } from '../io/package-reader';
 import type {
+	RemovedFolderSummary,
+	RemovedWorkflowSummary,
 	BlockingIssue,
 	ImportBindingMap,
 	ImportedFolderSummary,
 	ImportedWorkflowSummary,
-	ImportPackageRequest,
+	ResolvedImportPackageRequest,
 	ImportResult,
 	ImportTagSummary,
 	PackageImportBindings,
@@ -60,7 +63,7 @@ export class ProjectPackageImporter {
 	) {}
 
 	async import(
-		request: ImportPackageRequest,
+		request: ResolvedImportPackageRequest,
 		reader: PackageReader,
 		manifest: PackageManifest,
 	): Promise<ImportResult> {
@@ -154,6 +157,8 @@ export class ProjectPackageImporter {
 		});
 
 		const workflows: ImportedWorkflowSummary[] = [];
+		const removedWorkflows: RemovedWorkflowSummary[] = [];
+		const removedFolders: RemovedFolderSummary[] = [];
 		const folders: ImportedFolderSummary[] = [];
 		const scopedBindings: PackageImportBindings[] = [];
 		const matched: string[] = [];
@@ -170,6 +175,8 @@ export class ProjectPackageImporter {
 			workflows.push(
 				...toImportedWorkflowSummaries(content.workflowOutcomes, project.id, published),
 			);
+			removedWorkflows.push(...content.removedWorkflows);
+			removedFolders.push(...content.removedFolders);
 			folders.push(...content.folderSummaries);
 			scopedBindings.push(content.bindings);
 			matched.push(...content.credentialResult.matched);
@@ -195,6 +202,8 @@ export class ProjectPackageImporter {
 		return buildImportResult({
 			package: toPackageSummary(manifest),
 			workflows,
+			removedWorkflows,
+			removedFolders,
 			folders,
 			projects: projectSummaries,
 			bindings: mergeBindings(...scopedBindings),
@@ -211,7 +220,7 @@ export class ProjectPackageImporter {
 	}
 
 	private async buildImportContextForProject(
-		request: ImportPackageRequest,
+		request: ResolvedImportPackageRequest,
 		reader: PackageReader,
 		manifest: PackageManifest,
 		project: ManifestEntry,
@@ -279,7 +288,7 @@ export class ProjectPackageImporter {
 	}
 
 	private assertAdequatePermissions(
-		request: ImportPackageRequest,
+		request: ResolvedImportPackageRequest,
 		manifest: PackageManifest,
 	): void {
 		// A project package can create new projects or update matched ones (by source id), so require both —
@@ -297,6 +306,13 @@ export class ProjectPackageImporter {
 
 		if ((manifest.workflows?.length ?? 0) > 0) {
 			assertPackageImportApiKeyScopes(request.apiKeyScopes, ['workflow:import']);
+		}
+
+		// `overwrite` archives workflows the package omits, so require the scope up front rather than
+		// discovering mid-import that the caller may not remove what reconciliation demands.
+		if (removesUnpackagedWorkflows(request.folderConflictPolicy)) {
+			// Folders it empties go too, so it needs both removal scopes up front.
+			assertPackageImportApiKeyScopes(request.apiKeyScopes, ['workflow:delete', 'folder:delete']);
 		}
 	}
 }

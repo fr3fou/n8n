@@ -17,7 +17,7 @@ describe('ImportPackageRequestDto', () => {
 				workflowIdPolicy: 'source',
 				missingNodeTypeMode: 'fail',
 				projectConflictPolicy: 'merge',
-				folderConflictPolicy: 'merge',
+				overwriteDeletionPolicy: 'archive',
 				dataTableMatchingMode: 'by-id',
 				dataTableMissingMode: 'create',
 				dataTableSchemaConflictPolicy: 'keep-existing',
@@ -45,7 +45,7 @@ describe('ImportPackageRequestDto', () => {
 				workflowIdPolicy: 'source',
 				missingNodeTypeMode: 'fail',
 				projectConflictPolicy: 'merge',
-				folderConflictPolicy: 'merge',
+				overwriteDeletionPolicy: 'archive',
 				dataTableMatchingMode: 'by-id',
 				dataTableMissingMode: 'create',
 				dataTableSchemaConflictPolicy: 'keep-existing',
@@ -75,7 +75,7 @@ describe('ImportPackageRequestDto', () => {
 				workflowIdPolicy: 'source',
 				missingNodeTypeMode: 'fail',
 				projectConflictPolicy: 'merge',
-				folderConflictPolicy: 'merge',
+				overwriteDeletionPolicy: 'archive',
 				dataTableMatchingMode: 'by-id',
 				dataTableMissingMode: 'create',
 				dataTableSchemaConflictPolicy: 'keep-existing',
@@ -104,7 +104,7 @@ describe('ImportPackageRequestDto', () => {
 				workflowIdPolicy: 'source',
 				missingNodeTypeMode: 'fail',
 				projectConflictPolicy: 'merge',
-				folderConflictPolicy: 'merge',
+				overwriteDeletionPolicy: 'archive',
 				dataTableMatchingMode: 'by-id',
 				dataTableMissingMode: 'create',
 				dataTableSchemaConflictPolicy: 'keep-existing',
@@ -299,10 +299,12 @@ describe('ImportPackageRequestDto', () => {
 		});
 	});
 
-	// Both conflict policies behave identically at the DTO layer, so one table covers them.
+	// The three conflict policies this module added behave identically at the DTO layer; only
+	// `folderConflictPolicy` has no default, because omitting it means "follow projectConflictPolicy".
 	describe.each([
 		{ field: 'projectConflictPolicy', values: ['merge', 'fail', 'overwrite'], expected: 'merge' },
-		{ field: 'folderConflictPolicy', values: ['merge', 'fail'], expected: 'merge' },
+		{ field: 'folderConflictPolicy', values: ['merge', 'fail', 'overwrite'], expected: undefined },
+		{ field: 'overwriteDeletionPolicy', values: ['archive', 'hard-delete'], expected: 'archive' },
 	] as const)('$field', ({ field, values, expected }) => {
 		it(`defaults to ${expected ?? 'undefined'} when omitted`, () => {
 			const result = ImportPackageRequestDto.safeParse({ workflowConflictPolicy: 'fail' });
@@ -437,6 +439,7 @@ describe('ImportPackageRequestDto', () => {
 			{ field: 'workflowIdPolicy', expected: 'source' },
 			{ field: 'missingNodeTypeMode', expected: 'fail' },
 			{ field: 'projectConflictPolicy', expected: 'merge' },
+			{ field: 'overwriteDeletionPolicy', expected: 'archive' },
 			{ field: 'dataTableMatchingMode', expected: 'by-id' },
 			{ field: 'dataTableMissingMode', expected: 'create' },
 			{ field: 'dataTableSchemaConflictPolicy', expected: 'keep-existing' },
