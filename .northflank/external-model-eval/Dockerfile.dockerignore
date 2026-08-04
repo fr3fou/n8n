@@ -1,0 +1,12 @@
+.git
+.github
+.agent-setup
+.cache
+.turbo
+**/node_modules
+compiled
+dist
+*.log
+eval-results.json
+packages/@n8n/instance-ai/.data
+packages/@n8n/instance-ai/coverage
