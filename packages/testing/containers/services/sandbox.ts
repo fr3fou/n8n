@@ -192,7 +192,15 @@ export const sandbox: Service<SandboxResult> = {
 					'com.docker.compose.service': RUNNER_HOSTNAME,
 				})
 				.withPrivilegedMode()
-				.withBindMounts([{ source: join(tlsDir, 'runner'), target: '/tls', mode: 'ro' }])
+				.withBindMounts([
+					{ source: join(tlsDir, 'runner'), target: '/tls', mode: 'ro' },
+					...(USE_HOST_DOCKER
+						? [
+								{ source: HOST_DOCKER_SOCKET, target: HOST_DOCKER_SOCKET, mode: 'rw' as const },
+								{ source: SANDBOX_DATA_DIR, target: SANDBOX_DATA_DIR, mode: 'rw' as const },
+							]
+						: []),
+				])
 				.withEnvironment({
 					SANDBOX_RUNNER_API_KEYS: RUNNER_API_KEY,
 					SANDBOX_RUNNER_REGISTRATION_TOKEN: REGISTRATION_TOKEN,
@@ -223,10 +231,6 @@ export const sandbox: Service<SandboxResult> = {
 			if (USE_HOST_DOCKER) {
 				mkdirSync(SANDBOX_DATA_DIR, { recursive: true });
 				runner = runner
-					.withBindMounts([
-						{ source: HOST_DOCKER_SOCKET, target: HOST_DOCKER_SOCKET, mode: 'rw' },
-						{ source: SANDBOX_DATA_DIR, target: SANDBOX_DATA_DIR, mode: 'rw' },
-					])
 					.withEntrypoint(['/sbin/tini', '--', 'sh', '-c'])
 					.withCommand([
 						'docker network inspect runner-bridge >/dev/null 2>&1 || docker network create --driver bridge --opt com.docker.network.bridge.enable_icc=false runner-bridge >/dev/null; exec /usr/local/bin/sandbox-runner',
