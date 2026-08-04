@@ -202,6 +202,7 @@ export const sandbox: Service<SandboxResult> = {
 						: []),
 				])
 				.withEnvironment({
+					...(USE_HOST_DOCKER ? { SANDBOX_RUNNER_ENABLE_CGROUPS: 'false' } : {}),
 					SANDBOX_RUNNER_API_KEYS: RUNNER_API_KEY,
 					SANDBOX_RUNNER_REGISTRATION_TOKEN: REGISTRATION_TOKEN,
 					SANDBOX_RUNNER_API_GRPC_ADDR: `${API_HOSTNAME}:${API_GRPC_PORT}`,
