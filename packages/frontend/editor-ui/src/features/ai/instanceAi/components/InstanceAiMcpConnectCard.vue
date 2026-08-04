@@ -147,15 +147,17 @@ async function handleDisconnect(row: CardRow) {
 		</header>
 
 		<div :class="$style.rows">
+			<!-- A row the user skipped (or that settled read-only/expired) was never connected,
+			     so it reports no status rather than a failure-coloured "Disconnected". -->
 			<ConnectionRow
 				v-for="row in rows"
 				:key="row.serverSlug"
 				:name="row.title"
 				:subtitle="row.subtitle"
 				:icon="row.icon"
-				:status="row.connectionId ? 'connected' : 'disconnected'"
+				:status="row.connectionId ? 'connected' : 'none'"
 				:actions="row.connectionId ? ['settings', 'disconnect'] : []"
-				:show-status-label="!!row.connectionId"
+				show-status-label
 				menu-activator-icon="chevron-down"
 				:primary-action-label="
 					row.connectionId || !isActionable || !row.credentialType

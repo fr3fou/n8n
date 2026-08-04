@@ -24,6 +24,11 @@ function createInstanceAiContext(): InstanceAiContext {
 		nodeService: service,
 		dataTableService: service,
 		workspaceService: service,
+		// Flag-gated tools are registered only when their service is wired, so without
+		// these the guard silently skips them — which is how a non-object input schema
+		// reached production once already.
+		evaluationConfigService: service,
+		mcpService: service,
 		logger: {
 			debug: vi.fn(),
 			info: vi.fn(),

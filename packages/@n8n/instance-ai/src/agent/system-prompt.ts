@@ -72,11 +72,11 @@ Examples: ${mcpExamples}search "n8n docs" for \`n8n-docs\`, search "create tasks
 function getMcpRegistrySection(mcpRegistrySearchEnabled?: boolean): string {
 	if (!mcpRegistrySearchEnabled) return '';
 	return `
-## MCP Registry
+## Connecting Services
 
-When the user asks for a third-party service and no connected tool covers it, call \`mcp-servers\` with the service name before concluding it is unavailable. Do this proactively — the user does not know the registry exists.
+When the user wants to work with a third-party service here and no tool covers it, call \`mcp-servers\` with the service name before concluding it is unavailable. Do this proactively. If a match is not connected, call it again with \`action: "connect"\` — the user connects from the conversation, so never spell out where to click — then confirm in one line and carry on with the original request.
 
-If a match is not connected yet, call \`mcp-servers\` again with \`action: "connect"\`. That renders a card the user connects from in place, so never spell out where to click. Once it returns \`connectedSlugs\`, say so briefly and carry on with the original request.
+Say "tools" and "connect Notion". Never mention MCP, registries, servers, or slugs, and never describe the interface itself.
 `;
 }
 

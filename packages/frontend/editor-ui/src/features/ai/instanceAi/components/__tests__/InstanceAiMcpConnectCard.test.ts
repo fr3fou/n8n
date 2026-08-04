@@ -175,13 +175,14 @@ describe('InstanceAiMcpConnectCard', () => {
 			makeMcpStore({ connections: [{ id: 'conn-1', serverSlug: 'brave' }] }),
 		);
 
-		const { queryByTestId, getByText } = renderComponent({
+		const { queryByTestId, getByTestId, getByText } = renderComponent({
 			props: { servers: [BRAVE_PAYLOAD], readOnly: true },
 		});
 
 		expect(queryByTestId('instance-ai-connection-row-primary-action')).toBeNull();
 		expect(queryByTestId('instance-ai-mcp-connect-skip')).toBeNull();
 		expect(getByText('instanceAi.connections.row.status.connected')).toBeVisible();
+		expect(getByTestId('instance-ai-connection-row-status')).toBeVisible();
 	});
 
 	it('renders no actions once read-only', () => {
@@ -209,5 +210,44 @@ describe('InstanceAiMcpConnectCard', () => {
 
 		expect(queryByTestId('instance-ai-connection-row-primary-action')).toBeNull();
 		expect(getByTestId('instance-ai-mcp-connect-skip')).toBeVisible();
+	});
+
+	describe('rows that were never connected', () => {
+		it('reports no status after skipping', async () => {
+			const { getByTestId, queryByTestId, queryByText } = renderComponent({
+				props: { servers: [BRAVE_PAYLOAD] },
+			});
+
+			await fireEvent.click(getByTestId('instance-ai-mcp-connect-skip'));
+
+			expect(queryByTestId('instance-ai-connection-row-status')).toBeNull();
+			expect(queryByText('instanceAi.connections.row.status.disconnected')).toBeNull();
+		});
+
+		it('reports no status once read-only', () => {
+			const { queryByTestId, queryByText } = renderComponent({
+				props: { servers: [BRAVE_PAYLOAD], readOnly: true },
+			});
+
+			expect(queryByTestId('instance-ai-connection-row-status')).toBeNull();
+			expect(queryByText('instanceAi.connections.row.status.disconnected')).toBeNull();
+		});
+
+		it('reports no status once expired', () => {
+			const { queryByTestId, queryByText } = renderComponent({
+				props: { servers: [BRAVE_PAYLOAD], expired: true },
+			});
+
+			expect(queryByTestId('instance-ai-connection-row-status')).toBeNull();
+			expect(queryByText('instanceAi.connections.row.status.disconnected')).toBeNull();
+		});
+
+		it('reports no status while the credential type is unknown', () => {
+			mcpStoreMock.mockReturnValue(makeMcpStore({ catalog: [] }));
+
+			const { queryByTestId } = renderComponent({ props: { servers: [BRAVE_PAYLOAD] } });
+
+			expect(queryByTestId('instance-ai-connection-row-status')).toBeNull();
+		});
 	});
 });

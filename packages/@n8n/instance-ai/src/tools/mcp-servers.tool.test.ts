@@ -1,3 +1,4 @@
+import { isZodSchema, zodToJsonSchema } from '@n8n/agents';
 import { mock } from 'vitest-mock-extended';
 
 import { executeTool } from '../__tests__/tool-test-utils';
@@ -69,7 +70,60 @@ function suspendingContext() {
 	return { ctx: { resumeData: undefined, suspend }, suspend };
 }
 
+type JsonSchema = NonNullable<ReturnType<typeof zodToJsonSchema>>;
+
+function inputJsonSchema(): JsonSchema {
+	const { inputSchema } = createMcpServersTool(makeContext(makeService([])));
+	if (!isZodSchema(inputSchema)) throw new Error('expected a Zod input schema');
+	const jsonSchema = zodToJsonSchema(inputSchema);
+	if (!jsonSchema) throw new Error('expected the input schema to convert');
+	return jsonSchema;
+}
+
+function property(schema: JsonSchema, name: string): JsonSchema {
+	const value = schema.properties?.[name];
+	if (typeof value !== 'object') throw new Error(`expected an object schema for "${name}"`);
+	return value;
+}
+
 describe('mcp-servers tool', () => {
+	// The provider schema is the flattened union: Anthropic rejects a request whose
+	// tool input_schema has no top-level `type`, which takes down every message, not
+	// just the ones that reach for this tool.
+	describe('input schema', () => {
+		it('is a top-level object rather than a bare union', () => {
+			const schema = inputJsonSchema();
+
+			expect(schema.type).toBe('object');
+			expect(schema.anyOf).toBeUndefined();
+			expect(schema.oneOf).toBeUndefined();
+		});
+
+		it('offers both actions and every per-action field', () => {
+			const schema = inputJsonSchema();
+
+			expect(property(schema, 'action').enum).toEqual(['search', 'connect']);
+			expect(Object.keys(schema.properties ?? {})).toEqual(
+				expect.arrayContaining(['action', 'queries', 'serverSlugs', 'reason']),
+			);
+		});
+
+		it('requires only the action, leaving the rest to the handler', () => {
+			expect(inputJsonSchema().required).toEqual(['action']);
+		});
+
+		it('keeps the per-action guidance the model needs to pick an action', () => {
+			const schema = inputJsonSchema();
+
+			expect(property(schema, 'action').description).toContain(
+				'Look for tools that cover a service',
+			);
+			expect(property(schema, 'action').description).toContain('connect one of these services');
+			expect(property(schema, 'queries').description).toContain('"search"');
+			expect(property(schema, 'serverSlugs').description).toContain('at most 3');
+		});
+	});
+
 	describe('search', () => {
 		it('passes the queries through and returns the host-annotated results', async () => {
 			const mcpService = makeService([notion, linear]);
@@ -123,11 +177,21 @@ describe('mcp-servers tool', () => {
 			await expect(executeTool(tool, { action: 'search', queries: [] })).rejects.toThrow();
 		});
 
+		// The flattened provider schema marks every per-action field optional, so the
+		// handler is the only thing still enforcing them.
+		it('rejects a search with no queries at all', async () => {
+			const mcpService = makeService([notion]);
+			const tool = createMcpServersTool(makeContext(mcpService));
+
+			await expect(executeTool(tool, { action: 'search' })).rejects.toThrow();
+			expect(mcpService.search).not.toHaveBeenCalled();
+		});
+
 		it('fails loudly when the host did not wire the MCP service', async () => {
 			const tool = createMcpServersTool(makeContext(undefined));
 
 			await expect(executeTool(tool, { action: 'search', queries: ['notion'] })).rejects.toThrow(
-				'The MCP registry is not available on this instance.',
+				'Tool connections are not available on this instance.',
 			);
 		});
 
@@ -222,6 +286,19 @@ describe('mcp-servers tool', () => {
 					suspendingContext().ctx,
 				),
 			).rejects.toThrow();
+		});
+
+		it('rejects a connect that omits the slugs or the reason', async () => {
+			const tool = createMcpServersTool(makeContext(makeService([notion])));
+			const { ctx, suspend } = suspendingContext();
+
+			await expect(
+				executeTool(tool, { action: 'connect', reason: 'Because' }, ctx),
+			).rejects.toThrow();
+			await expect(
+				executeTool(tool, { action: 'connect', serverSlugs: ['notion'] }, ctx),
+			).rejects.toThrow();
+			expect(suspend).not.toHaveBeenCalled();
 		});
 
 		it('names an invented slug alongside the servers it did resolve', async () => {

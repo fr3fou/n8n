@@ -224,7 +224,9 @@ function formatActionList(actions: readonly CredentialAction[]): string {
 
 function getToolDescription(options: CredentialsToolOptions): string {
 	const actionList = formatActionList(getCredentialActions(options));
-	const description = `${options.descriptionPrefix ?? 'Manage credentials'} — ${actionList}.`;
+	// "workflow nodes … at run time" is load-bearing: it is what stops a bare
+	// "connect my Notion account" landing here instead of on `mcp-servers`.
+	const description = `${options.descriptionPrefix ?? 'Manage the credentials workflow nodes authenticate with at run time'} — ${actionList}.`;
 	const builderSuffix =
 		'Use list, get, search-types, and test for credential metadata and connection checks during workflow building.';
 	const browserSetupSuffix =

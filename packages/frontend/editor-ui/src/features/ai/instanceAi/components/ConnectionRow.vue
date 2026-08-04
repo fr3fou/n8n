@@ -5,7 +5,9 @@ import type { DropdownMenuItemProps, IconName } from '@n8n/design-system';
 import { useI18n, type BaseTextKey } from '@n8n/i18n';
 
 type RowAction = 'connect' | 'disconnect' | 'settings' | 'remove';
-type ConnectionStatus = 'connected' | 'waiting' | 'disconnected';
+/** `none` is for rows that were never connected: there is no state to report, so
+ *  the row renders no indicator at all rather than a failure-coloured one. */
+export type ConnectionStatus = 'connected' | 'waiting' | 'disconnected' | 'none';
 export type ConnectionRowIcon = IconName | { type: 'file'; src: string };
 
 const props = defineProps<{
@@ -57,12 +59,15 @@ const menuItems = computed<Array<DropdownMenuItemProps<RowAction>>>(() =>
 	})),
 );
 
-const statusTooltip = computed(() => {
-	if (props.status === 'connected')
-		return i18n.baseText('instanceAi.connections.row.status.connected');
-	if (props.status === 'waiting') return i18n.baseText('instanceAi.connections.row.status.waiting');
-	return i18n.baseText('instanceAi.connections.row.status.disconnected');
-});
+const STATUS_LABEL_KEYS = {
+	connected: 'instanceAi.connections.row.status.connected',
+	waiting: 'instanceAi.connections.row.status.waiting',
+	disconnected: 'instanceAi.connections.row.status.disconnected',
+} satisfies Record<Exclude<ConnectionStatus, 'none'>, BaseTextKey>;
+
+const statusTooltip = computed(() =>
+	props.status === 'none' ? undefined : i18n.baseText(STATUS_LABEL_KEYS[props.status]),
+);
 
 function handleSelect(action: RowAction) {
 	if (action === 'connect') emit('connect');
@@ -106,16 +111,21 @@ function handleRowClick() {
 			{{ primaryActionLabel }}
 		</N8nButton>
 		<template v-else>
-			<span
-				:class="[
-					$style.dot,
-					status === 'connected' && $style.dotConnected,
-					status === 'waiting' && $style.dotWaiting,
-					status === 'disconnected' && $style.dotDisconnected,
-				]"
-				:title="showStatusLabel ? undefined : statusTooltip"
-			/>
-			<N8nText v-if="showStatusLabel" size="small" color="text-light">{{ statusTooltip }}</N8nText>
+			<template v-if="status !== 'none'">
+				<span
+					:class="[
+						$style.dot,
+						status === 'connected' && $style.dotConnected,
+						status === 'waiting' && $style.dotWaiting,
+						status === 'disconnected' && $style.dotDisconnected,
+					]"
+					:title="showStatusLabel ? undefined : statusTooltip"
+					data-test-id="instance-ai-connection-row-status"
+				/>
+				<N8nText v-if="showStatusLabel" size="small" color="text-light">{{
+					statusTooltip
+				}}</N8nText>
+			</template>
 			<div @click.stop>
 				<N8nDropdownMenu
 					v-if="menuItems.length > 0"

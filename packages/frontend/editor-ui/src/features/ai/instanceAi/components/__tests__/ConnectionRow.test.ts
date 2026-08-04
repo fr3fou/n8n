@@ -57,10 +57,32 @@ describe('ConnectionRow', () => {
 	});
 
 	it('leaves the status to the tooltip by default', () => {
-		const { queryByText } = renderComponent({
+		const { queryByText, getByTestId } = renderComponent({
 			props: { ...baseProps, status: 'connected' as const },
 		});
 
 		expect(queryByText('instanceAi.connections.row.status.connected')).toBeNull();
+		expect(getByTestId('instance-ai-connection-row-status')).toHaveAttribute(
+			'title',
+			'instanceAi.connections.row.status.connected',
+		);
+	});
+
+	it('flags a broken connection as disconnected', () => {
+		const { getByTestId } = renderComponent({ props: baseProps });
+
+		expect(getByTestId('instance-ai-connection-row-status')).toHaveAttribute(
+			'title',
+			'instanceAi.connections.row.status.disconnected',
+		);
+	});
+
+	it('renders no status indicator for a row with no status', () => {
+		const { queryByTestId, queryByText } = renderComponent({
+			props: { ...baseProps, status: 'none' as const, showStatusLabel: true },
+		});
+
+		expect(queryByTestId('instance-ai-connection-row-status')).toBeNull();
+		expect(queryByText('instanceAi.connections.row.status.disconnected')).toBeNull();
 	});
 });

@@ -4,11 +4,17 @@
  * learns a hosted MCP server exists for the service the user asked about and
  * falls back to nodes + credentials; without `connect` it can only recite the
  * manual steps.
+ *
+ * Everything the model reads here says "tools you can use in this conversation",
+ * never "MCP"/"registry"/"server"/"card": it parrots these nouns back at the
+ * user, and the scope wording is also what separates this from `credentials`,
+ * which is about what a workflow node authenticates with at run time.
  */
 import { Tool } from '@n8n/agents';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
+import { sanitizeInputSchema } from '../agent/sanitize-mcp-schemas';
 import type { InstanceAiContext, InstanceAiMcpService } from '../types';
 import { DOMAIN_TOOL_IDS } from './tool-ids';
 
@@ -17,7 +23,7 @@ import { DOMAIN_TOOL_IDS } from './tool-ids';
 const MAX_SUGGESTED_SERVERS = 3;
 
 const searchAction = z.object({
-	action: z.literal('search').describe('Search the available MCP servers.'),
+	action: z.literal('search').describe('Look for tools that cover a service.'),
 	queries: z
 		.array(z.string().min(1))
 		.min(1)
@@ -29,7 +35,7 @@ const searchAction = z.object({
 const connectAction = z.object({
 	action: z
 		.literal('connect')
-		.describe('Offer the user an inline card to connect one of these MCP servers.'),
+		.describe('Let the user connect one of these services from the conversation.'),
 	serverSlugs: z
 		.array(z.string().min(1))
 		.min(1)
@@ -43,7 +49,13 @@ const connectAction = z.object({
 		.describe('One short sentence for the confirmation record: what connecting unlocks.'),
 });
 
-const mcpServersInputSchema = z.discriminatedUnion('action', [searchAction, connectAction]);
+const mcpServersRuntimeInputSchema = z.discriminatedUnion('action', [searchAction, connectAction]);
+
+// A top-level union has no `type` in JSON Schema and Anthropic rejects the whole
+// request ("input_schema.type: Field required"), so the provider gets a flattened
+// object while the handler keeps parsing against the union for real narrowing and
+// per-action validation.
+const mcpServersToolInputSchema = sanitizeInputSchema(mcpServersRuntimeInputSchema);
 
 const searchOutputSchema = z.object({
 	results: z.array(
@@ -67,13 +79,13 @@ const connectOutputSchema = z.object({
 
 const mcpServersOutputSchema = z.union([searchOutputSchema, connectOutputSchema]);
 
-const DESCRIPTION = `Search the MCP servers that connect the assistant to a third-party service (e.g. Notion, Linear, Slack), and offer the user a card to connect one.
+const DESCRIPTION = `Find tools you can use in this conversation to work with a third-party service (e.g. Notion, Linear, Slack), and let the user connect one without leaving the chat.
 Use \`search\` when the user asks for a service you have no connected tool for, before saying the integration is unavailable.
 \`isConnected: true\` means its tools are already available to you, so do not offer to connect it again.
-Use \`connect\` for a server that is not connected yet — it shows the user an inline card and pauses until they connect or skip. Only the user can complete a connection.`;
+Use \`connect\` for a service that is not connected yet — it pauses until the user connects or skips. Only the user can complete a connection.`;
 
 const CONNECT_HINT =
-	'Not connected yet — call this tool again with `action: "connect"` and its slug to offer the user a connection card. Do not recite the manual steps instead.';
+	'Not connected yet — call this tool again with `action: "connect"` and its slug so the user can connect it in place. Do not recite the manual steps instead.';
 
 const suspendSchema = z.object({
 	requestId: z.string(),
@@ -102,7 +114,7 @@ interface McpServersToolContext {
 
 function requireMcpService(context: InstanceAiContext): InstanceAiMcpService {
 	const { mcpService } = context;
-	if (!mcpService) throw new Error('The MCP registry is not available on this instance.');
+	if (!mcpService) throw new Error('Tool connections are not available on this instance.');
 	return mcpService;
 }
 
@@ -141,7 +153,7 @@ async function handleConnect(
 				connectedSlugs: [],
 				skipped: !resumeData.approved,
 				message: resumeData.approved
-					? 'No connection was created. Continue without these tools and do not re-offer the card.'
+					? 'No connection was created. Continue without these tools and do not offer again.'
 					: 'The user skipped connecting. Continue without these tools and do not ask again.',
 			};
 		}
@@ -160,12 +172,12 @@ async function handleConnect(
 		return {
 			connectedSlugs: [],
 			unknownSlugs,
-			message: `No MCP server matches ${unknownSlugs.join(', ')}. Call \`action: "search"\` first and use a slug it returned.`,
+			message: `No tool matches ${unknownSlugs.join(', ')}. Call \`action: "search"\` first and use a slug it returned.`,
 		};
 	}
 
 	const unknownNote = unknownSlugs.length
-		? ` No MCP server matches ${unknownSlugs.join(', ')} — only use slugs \`search\` returned.`
+		? ` No tool matches ${unknownSlugs.join(', ')} — only use slugs \`search\` returned.`
 		: '';
 
 	// One connection per server is a backend invariant, so re-offering a connected
@@ -201,12 +213,12 @@ async function handleConnect(
 export function createMcpServersTool(context: InstanceAiContext) {
 	return new Tool(DOMAIN_TOOL_IDS.MCP_SERVERS)
 		.description(DESCRIPTION)
-		.input(mcpServersInputSchema)
+		.input(mcpServersToolInputSchema)
 		.output(mcpServersOutputSchema)
 		.suspend(suspendSchema)
 		.resume(resumeSchema)
 		.handler(async (input, ctx: McpServersToolContext) => {
-			const parsed = mcpServersInputSchema.parse(input);
+			const parsed = mcpServersRuntimeInputSchema.parse(input);
 			return parsed.action === 'search'
 				? await handleSearch(context, parsed)
 				: await handleConnect(context, parsed, ctx);

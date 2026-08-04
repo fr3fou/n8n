@@ -149,15 +149,23 @@ describe('getSystemPrompt — browser/computer-use discoverability', () => {
 		it('nudges the orchestrator to search the registry when the tool is available', () => {
 			const prompt = getSystemPrompt({ mcpRegistrySearchEnabled: true });
 
-			expect(prompt).toContain('## MCP Registry');
+			expect(prompt).toContain('## Connecting Services');
 			expect(prompt).toContain('mcp-servers');
+		});
+
+		// The model reuses whatever nouns the prompt hands it, so the ban has to
+		// survive future edits to this section.
+		it('tells the orchestrator to keep the plumbing out of what it says', () => {
+			const prompt = getSystemPrompt({ mcpRegistrySearchEnabled: true });
+
+			expect(prompt).toContain('Never mention MCP, registries, servers, or slugs');
 		});
 
 		it('omits the section when the tool is not registered', () => {
 			// Naming a tool that is not in the run invites a hallucinated call.
 			const prompt = getSystemPrompt({});
 
-			expect(prompt).not.toContain('## MCP Registry');
+			expect(prompt).not.toContain('## Connecting Services');
 			expect(prompt).not.toContain('mcp-servers');
 		});
 	});
